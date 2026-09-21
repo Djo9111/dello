@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Env
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Uploads locaux
+backend/uploads/
+
+# Flutter (pour plus tard)
+mobile/build/
+mobile/.dart_tool/
