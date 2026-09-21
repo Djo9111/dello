@@ -33,6 +33,11 @@ def run_migrations_online() -> None:
     connectable = create_engine(
         settings.database_url,
         poolclass=pool.NullPool,
+        connect_args={
+            "connect_timeout": 5,
+            "application_name": "dello-migrations",
+            "options": "-c lock_timeout=10000",
+        },
     )
 
     with connectable.connect() as connection:
