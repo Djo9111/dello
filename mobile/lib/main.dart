@@ -1,7 +1,9 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
-import 'core/config/app_config.dart';
+import 'core/theme/app_theme.dart';
+import 'features/auth/auth_controller.dart';
+import 'features/auth/screens/login_screen.dart';
+import 'features/home/screens/home_screen.dart';
 
 void main() {
   runApp(const DelloApp());
@@ -15,84 +17,45 @@ class DelloApp extends StatelessWidget {
     return MaterialApp(
       title: 'Dello',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF00853F)),
-        useMaterial3: true,
-      ),
-      home: const HealthCheckPage(),
+      theme: AppTheme.light,
+      home: const AuthGate(),
     );
   }
 }
 
-class HealthCheckPage extends StatefulWidget {
-  const HealthCheckPage({super.key});
+/// Aiguille vers la connexion ou l'accueil selon l'état de la session.
+/// Centraliser ça ici garantit qu'une session expirée ramène toujours
+/// à la connexion, depuis n'importe quel écran.
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
 
   @override
-  State<HealthCheckPage> createState() => _HealthCheckPageState();
+  State<AuthGate> createState() => _AuthGateState();
 }
 
-class _HealthCheckPageState extends State<HealthCheckPage> {
-  String _status = 'Vérification...';
-  bool _isHealthy = false;
-
+class _AuthGateState extends State<AuthGate> {
   @override
   void initState() {
     super.initState();
-    _checkApi();
-  }
-
-  Future<void> _checkApi() async {
-    setState(() => _status = 'Vérification...');
-
-    // L'endpoint /health est à la racine, pas sous /api/v1
-    final baseUrl = AppConfig.apiBaseUrl.replaceFirst('/api/v1', '');
-    final dio = Dio(
-      BaseOptions(
-        connectTimeout: AppConfig.connectTimeout,
-        receiveTimeout: AppConfig.receiveTimeout,
-      ),
-    );
-
-    try {
-      final response = await dio.get('$baseUrl/health');
-      setState(() {
-        _isHealthy = response.data['status'] == 'ok';
-        _status = _isHealthy ? 'API joignable' : 'Réponse inattendue';
-      });
-    } on DioException catch (error) {
-      setState(() {
-        _isHealthy = false;
-        _status = 'API injoignable : ${error.type.name}';
-      });
-    }
+    AuthController.instance.bootstrap();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              _isHealthy ? Icons.check_circle : Icons.error_outline,
-              size: 64,
-              color: _isHealthy ? Colors.green : Colors.orange,
-            ),
-            const SizedBox(height: 16),
-            const Text('Dello', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Text(_status),
-            const SizedBox(height: 4),
-            Text(
-              AppConfig.apiBaseUrl,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 24),
-            FilledButton(onPressed: _checkApi, child: const Text('Réessayer')),
-          ],
-        ),
-      ),
+    return ListenableBuilder(
+      listenable: AuthController.instance,
+      builder: (context, _) {
+        switch (AuthController.instance.status) {
+          case AuthStatus.checking:
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          case AuthStatus.authenticated:
+            return const HomeScreen();
+          case AuthStatus.unauthenticated:
+            return const LoginScreen();
+        }
+      },
     );
   }
 }
