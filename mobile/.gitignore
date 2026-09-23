@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Env
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Uploads locaux
+backend/uploads/
+
+# Flutter
+mobile/build/
+mobile/.dart_tool/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/.flutter-plugins-dependencies
+
+# Clés de signature Android (ne JAMAIS commiter)
+*.jks
+*.keystore
+mobile/android/key.properties
