@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -9,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.core.database import check_database_connection
 from app.core.rate_limit import limiter
+from app.core.schema_check import verify_database_schema
 from app.modules.auth.exceptions import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
@@ -20,8 +22,17 @@ from app.modules.users.router import router as users_router
 
 logger = logging.getLogger("dello")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Échouer au démarrage plutôt que de servir des 500 sur une table manquante
+    verify_database_schema()
+    yield
+
+
 app = FastAPI(
     title=settings.APP_NAME,
+    lifespan=lifespan,
     docs_url="/docs" if settings.docs_enabled else None,
     redoc_url=None,
     openapi_url="/openapi.json" if settings.docs_enabled else None,
