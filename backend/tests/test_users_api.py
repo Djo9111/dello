@@ -93,3 +93,57 @@ def test_phone_can_be_reused_after_deletion(client):
     _delete(client, tokens)
 
     assert _register(client).status_code == 201
+
+def test_deleting_account_keeps_found_reports_anonymized(client, db_session):
+    from datetime import date
+
+    from app.modules.reports.models import DocumentType, Report, ReportKind
+
+    _register(client)
+    tokens = _login(client)
+    user = db_session.query(User).one()
+
+    db_session.add_all([
+        Report(
+            user_id=user.id,
+            kind=ReportKind.FOUND,
+            document_type=DocumentType.CNI,
+            region="Dakar",
+            occurred_on=date(2026, 9, 20),
+        ),
+        Report(
+            user_id=user.id,
+            kind=ReportKind.LOST,
+            document_type=DocumentType.PERMIS,
+            region="Dakar",
+        ),
+    ])
+    db_session.commit()
+
+    assert _delete(client, tokens).status_code == 204
+
+    remaining = db_session.scalars(select(Report)).all()
+    assert len(remaining) == 1
+    assert remaining[0].kind == ReportKind.FOUND
+    assert remaining[0].user_id is None
+
+
+def test_deleting_account_removes_lost_reports(client, db_session):
+    from app.modules.reports.models import DocumentType, Report, ReportKind
+
+    _register(client)
+    tokens = _login(client)
+    user = db_session.query(User).one()
+
+    db_session.add(
+        Report(
+            user_id=user.id,
+            kind=ReportKind.LOST,
+            document_type=DocumentType.CNI,
+            region="Dakar",
+        )
+    )
+    db_session.commit()
+
+    assert _delete(client, tokens).status_code == 204
+    assert db_session.scalars(select(Report)).all() == []    
