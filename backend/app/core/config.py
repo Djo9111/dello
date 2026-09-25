@@ -45,6 +45,7 @@ class Settings(BaseSettings):
 
     # Rate limiting
     AUTH_RATE_LIMIT: str = "5/minute"
+    REPORT_CREATE_RATE_LIMIT: str = "20/hour"
 
     @model_validator(mode="after")
     def check_security(self) -> "Settings":

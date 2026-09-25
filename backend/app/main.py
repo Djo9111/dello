@@ -16,6 +16,10 @@ from app.modules.auth.exceptions import (
     InvalidRefreshTokenError,
     PhoneAlreadyRegisteredError,
 )
+
+from app.modules.reports.exceptions import ReportNotFoundError
+from app.modules.reports.router import router as reports_router
+
 from app.modules.auth.router import router as auth_router
 from app.modules.users.exceptions import WrongPasswordError
 from app.modules.users.router import router as users_router
@@ -127,6 +131,11 @@ async def wrong_password_handler(request: Request, exc: WrongPasswordError):
     return _error(status.HTTP_403_FORBIDDEN, "Mot de passe incorrect")
 
 
+@app.exception_handler(ReportNotFoundError)
+async def report_not_found_handler(request: Request, exc: ReportNotFoundError):
+    return _error(status.HTTP_404_NOT_FOUND, "Signalement introuvable")
+
+
 @app.exception_handler(Exception)
 async def unhandled_error_handler(request: Request, exc: Exception):
     """Toute erreur imprévue : trace complète dans les logs, message neutre au client."""
@@ -151,3 +160,4 @@ def health():
 
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 app.include_router(users_router, prefix=settings.API_V1_PREFIX)
+app.include_router(reports_router, prefix=settings.API_V1_PREFIX)
