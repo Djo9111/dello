@@ -1,16 +1,17 @@
 /// Configuration de l'application, injectée au moment du build.
 ///
-/// En développement, la valeur par défaut pointe vers l'API locale :
-/// 10.0.2.2 est l'adresse par laquelle l'émulateur Android voit ton PC.
+/// Par défaut : l'émulateur Android, qui voit le PC sur 10.0.2.2.
+/// Sur téléphone physique, passer l'adresse du PC au lancement :
+///   flutter run --dart-define=API_BASE_URL=http://192.168.x.x:8000/api/v1
 ///
-/// En release, l'URL est passée au build :
+/// En release :
 ///   flutter build apk --dart-define=API_BASE_URL=https://api.dello.sn/api/v1
 class AppConfig {
   const AppConfig._();
 
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://192.168.1.26:8000/api/v1',
+    defaultValue: 'http://10.0.2.2:8000/api/v1',
   );
 
   static const Duration connectTimeout = Duration(seconds: 10);
