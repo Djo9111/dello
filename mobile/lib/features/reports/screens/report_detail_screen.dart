@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/network/api_exception.dart';
 import '../data/reports_repository.dart';
 import '../models/report.dart';
-import '../widgets/report_card.dart';
+import '../widgets/report_tile.dart';
 
 class ReportDetailScreen extends StatefulWidget {
   const ReportDetailScreen({super.key, required this.reportId});
@@ -173,7 +173,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
             child: Text('Aucune correspondance pour le moment.'),
           )
         else
-          ..._matches.map((match) => ReportCard(report: match)),
+                ..._matches.map((match) => ReportRow(report: match)),
       ],
     );
   }

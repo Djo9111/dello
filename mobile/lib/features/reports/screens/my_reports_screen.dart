@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/network/api_exception.dart';
 import '../data/reports_repository.dart';
 import '../models/report.dart';
-import '../widgets/report_card.dart';
+import '../widgets/report_tile.dart';
 import 'report_detail_screen.dart';
 import 'report_form_screen.dart';
 
@@ -104,7 +104,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
         itemCount: _reports.length,
         itemBuilder: (context, index) {
           final report = _reports[index];
-          return ReportCard(
+          return ReportRow(
             report: report,
             onTap: () => _openDetail(report),
             trailing: report.isPublished == false

@@ -42,6 +42,7 @@ class ReportsRepository {
   }
 
   /// Le numéro part vers l'API puis n'est plus conservé par l'application.
+   /// Le numéro part vers l'API puis n'est plus conservé par l'application.
   Future<Report> create({
     required ReportKind kind,
     required DocumentType documentType,
@@ -51,6 +52,10 @@ class ReportsRepository {
     String? commune,
     String? placeDetail,
     DateTime? occurredOn,
+    double? latitude,
+    double? longitude,
+    String? verificationQuestion,
+    String? verificationAnswer,
   }) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
@@ -67,6 +72,12 @@ class ReportsRepository {
             'place_detail': placeDetail,
           if (occurredOn != null)
             'occurred_on': occurredOn.toIso8601String().split('T').first,
+          'latitude': ?latitude,
+          'longitude': ?longitude,
+          if (verificationQuestion != null && verificationQuestion.isNotEmpty)
+            'verification_question': verificationQuestion,
+          if (verificationAnswer != null && verificationAnswer.isNotEmpty)
+            'verification_answer': verificationAnswer,
         },
       );
       return Report.fromJson(response.data!);

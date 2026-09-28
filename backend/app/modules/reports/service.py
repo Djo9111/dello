@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_document_number
+from app.modules.claims.verification import hash_answer
 from app.modules.reports.exceptions import ReportNotFoundError
 from app.modules.reports.masking import mask_owner_name
 from app.modules.reports.models import Report, ReportKind, ReportStatus
@@ -36,6 +37,14 @@ def create_report(db: Session, user: User, data: ReportCreate) -> Report:
         commune=data.commune,
         place_detail=data.place_detail,
         occurred_on=data.occurred_on,
+        latitude=data.latitude,
+        longitude=data.longitude,
+        verification_question=data.verification_question,
+        verification_answer_hash=(
+            hash_answer(data.verification_answer.get_secret_value())
+            if data.verification_answer is not None
+            else None
+        ),
     )
 
     db.add(report)

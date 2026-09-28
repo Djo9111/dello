@@ -7,12 +7,14 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Integer,
     String,
     text,
 )
+
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -81,6 +83,15 @@ class Report(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # Date de la perte ou de la trouvaille, distincte de created_at
     occurred_on: Mapped[date | None] = mapped_column(Date)
+    # Position GPS, renseignée seulement pour un document trouvé (le déclarant
+    # est sur place). Jamais exposée publiquement.
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+
+    # Question de vérification posée par le déclarant, et réponse hachée.
+    # Une bonne réponse débloque la mise en relation sans intervention humaine.
+    verification_question: Mapped[str | None] = mapped_column(String(200))
+    verification_answer_hash: Mapped[str | None] = mapped_column(String(255))
 
     status: Mapped[ReportStatus] = mapped_column(
         _pg_enum(ReportStatus, "report_status"),
@@ -102,6 +113,9 @@ class Report(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "document_number_hmac IS NULL OR char_length(document_number_hmac) = 64",
             name="hmac_length",
         ),
+        CheckConstraint("latitude IS NULL OR (latitude BETWEEN -90 AND 90)", name="latitude_range"),
+        CheckConstraint("longitude IS NULL OR (longitude BETWEEN -180 AND 180)", name="longitude_range"),
+        CheckConstraint("(latitude IS NULL) = (longitude IS NULL)", name="coordinates_together"),
         # Requete exacte du moteur de rapprochement
         Index(
             "ix_reports_matching",

@@ -1,8 +1,7 @@
 import uuid
 from datetime import UTC, date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
-
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from app.modules.reports.models import DocumentType, ReportKind, ReportStatus
 from app.shared.schemas import StrictModel
 from app.shared.validators import normalize_full_name
@@ -34,6 +33,43 @@ class ReportCreate(StrictModel):
     commune: str | None = Field(default=None, max_length=80)
     place_detail: str | None = Field(default=None, max_length=255)
     occurred_on: date | None = None
+    # Position GPS : seulement pour un document trouvé, le déclarant étant
+    # sur place. Pour une perte, la position actuelle serait celle du domicile.
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    # Question de vérification et sa réponse. Une bonne réponse débloque
+    # la mise en relation sans attendre de décision humaine.
+    verification_question: str | None = Field(default=None, max_length=200)
+    verification_answer: SecretStr | None = None
+
+    @field_validator("verification_question")
+    @classmethod
+    def clean_question(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = " ".join(value.split())
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def check_coordinates_and_question(self) -> "ReportCreate":
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("Latitude et longitude vont ensemble")
+
+        if self.latitude is not None and self.kind is not ReportKind.FOUND:
+            raise ValueError(
+                "La position n'est enregistrée que pour un document trouvé"
+            )
+
+        has_question = self.verification_question is not None
+        has_answer = (
+            self.verification_answer is not None
+            and self.verification_answer.get_secret_value().strip() != ""
+        )
+        if has_question != has_answer:
+            raise ValueError("Question et réponse de vérification vont ensemble")
+
+        return self
 
     @field_validator("region")
     @classmethod
@@ -111,8 +147,9 @@ class ReportUpdate(StrictModel):
 
 
 class ReportPublic(BaseModel):
-    """Ce que tout le monde peut voir. Ni place_detail (lieu précis),
-    ni indication sur le numéro du document."""
+    """Ce que tout le monde peut voir. Ni le lieu précis, ni les coordonnées
+    GPS, ni d'indication sur le numéro du document. La question de
+    vérification est visible : il faut pouvoir y répondre pour revendiquer."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -125,15 +162,19 @@ class ReportPublic(BaseModel):
     occurred_on: date | None
     status: ReportStatus
     created_at: datetime
+    verification_question: str | None
 
 
 class ReportRead(ReportPublic):
-    """Vue du propriétaire du signalement : ajoute le lieu précis et la
-    publication. Le numéro reste absent, seule sa présence est indiquée."""
+    """Vue du propriétaire du signalement : ajoute le lieu précis, les
+    coordonnées et la publication. Le numéro reste absent, seule sa
+    présence est indiquée."""
 
     place_detail: str | None
     is_published: bool
     has_document_number: bool
+    latitude: float | None
+    longitude: float | None
 
     @classmethod
     def from_report(cls, report) -> "ReportRead":
@@ -147,7 +188,10 @@ class ReportRead(ReportPublic):
             occurred_on=report.occurred_on,
             status=report.status,
             created_at=report.created_at,
+            verification_question=report.verification_question,
             place_detail=report.place_detail,
             is_published=report.is_published,
             has_document_number=report.document_number_hmac is not None,
+            latitude=report.latitude,
+            longitude=report.longitude,
         )

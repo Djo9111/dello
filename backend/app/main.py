@@ -17,6 +17,16 @@ from app.modules.auth.exceptions import (
     PhoneAlreadyRegisteredError,
 )
 
+from app.modules.claims.exceptions import (
+    ClaimAlreadyExistsError,
+    ClaimAlreadyResolvedError,
+    ClaimNotAllowedError,
+    ClaimNotFoundError,
+    NoVerificationQuestionError,
+    WrongVerificationAnswerError,
+)
+from app.modules.claims.router import router as claims_router
+
 from app.modules.reports.exceptions import ReportNotFoundError
 from app.modules.reports.router import router as reports_router
 
@@ -135,6 +145,40 @@ async def wrong_password_handler(request: Request, exc: WrongPasswordError):
 async def report_not_found_handler(request: Request, exc: ReportNotFoundError):
     return _error(status.HTTP_404_NOT_FOUND, "Signalement introuvable")
 
+@app.exception_handler(ClaimNotFoundError)
+async def claim_not_found_handler(request: Request, exc: ClaimNotFoundError):
+    return _error(status.HTTP_404_NOT_FOUND, "Demande introuvable")
+
+
+@app.exception_handler(ClaimNotAllowedError)
+async def claim_not_allowed_handler(request: Request, exc: ClaimNotAllowedError):
+    return _error(status.HTTP_403_FORBIDDEN, str(exc) or "Action impossible")
+
+
+@app.exception_handler(ClaimAlreadyExistsError)
+async def claim_already_exists_handler(request: Request, exc: ClaimAlreadyExistsError):
+    return _error(status.HTTP_409_CONFLICT, "Vous avez déjà une demande en cours")
+
+
+@app.exception_handler(ClaimAlreadyResolvedError)
+async def claim_already_resolved_handler(request: Request, exc: ClaimAlreadyResolvedError):
+    return _error(status.HTTP_409_CONFLICT, "Cette demande a déjà été traitée")
+
+
+@app.exception_handler(WrongVerificationAnswerError)
+async def wrong_answer_handler(request: Request, exc: WrongVerificationAnswerError):
+    return _error(
+        status.HTTP_400_BAD_REQUEST,
+        "Réponse incorrecte. Le déclarant peut encore accepter votre demande.",
+    )
+
+
+@app.exception_handler(NoVerificationQuestionError)
+async def no_question_handler(request: Request, exc: NoVerificationQuestionError):
+    return _error(
+        status.HTTP_400_BAD_REQUEST,
+        "Ce signalement ne comporte pas de question de vérification",
+    )
 
 @app.exception_handler(Exception)
 async def unhandled_error_handler(request: Request, exc: Exception):
@@ -161,3 +205,4 @@ def health():
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 app.include_router(users_router, prefix=settings.API_V1_PREFIX)
 app.include_router(reports_router, prefix=settings.API_V1_PREFIX)
+app.include_router(claims_router, prefix=settings.API_V1_PREFIX)

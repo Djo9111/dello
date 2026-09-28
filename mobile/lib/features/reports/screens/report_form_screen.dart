@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../core/network/api_exception.dart';
 import '../data/reports_repository.dart';
 import '../models/report.dart';
+import '../../../core/location/location_service.dart';
+
 
 class ReportFormScreen extends StatefulWidget {
   const ReportFormScreen({super.key});
@@ -22,6 +24,12 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
   DocumentType _documentType = DocumentType.cni;
   String _region = senegalRegions.first;
   DateTime? _occurredOn;
+  final _questionController = TextEditingController();
+  final _answerController = TextEditingController();
+
+  double? _latitude;
+  double? _longitude;
+  bool _isLocating = false;
 
   bool _isSubmitting = false;
   String? _generalError;
@@ -33,6 +41,8 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
     _ownerNameController.dispose();
     _communeController.dispose();
     _placeController.dispose();
+    _questionController.dispose();
+    _answerController.dispose();
     super.dispose();
   }
 
@@ -48,6 +58,36 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
     if (picked != null) setState(() => _occurredOn = picked);
   }
 
+    /// Position proposée uniquement pour un document trouvé : le déclarant
+  /// est alors sur place. Pour une perte, la position actuelle serait
+  /// souvent le domicile, donc une information fausse et sensible.
+  Future<void> _useCurrentPosition() async {
+    setState(() => _isLocating = true);
+
+    try {
+      final position = await LocationService.currentPosition();
+      if (position != null && mounted) {
+        setState(() {
+          _latitude = position.latitude;
+          _longitude = position.longitude;
+        });
+      }
+    } on LocationFailure catch (failure) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(failure.message)));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Position indisponible')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLocating = false);
+    }
+  }
+
   Future<void> _submit() async {
     if (_isSubmitting) return;
 
@@ -58,7 +98,7 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
     });
 
     try {
-      await _repository.create(
+        await _repository.create(
         kind: _kind,
         documentType: _documentType,
         region: _region,
@@ -67,6 +107,10 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
         commune: _communeController.text.trim(),
         placeDetail: _placeController.text.trim(),
         occurredOn: _occurredOn,
+        latitude: _kind == ReportKind.found ? _latitude : null,
+        longitude: _kind == ReportKind.found ? _longitude : null,
+        verificationQuestion: _questionController.text.trim(),
+        verificationAnswer: _answerController.text.trim(),
       );
 
       // Le numéro ne reste pas en mémoire après l'envoi
@@ -190,6 +234,58 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
                 ),
               ),
               const SizedBox(height: 16),
+                            if (_kind == ReportKind.found) ...[
+                OutlinedButton.icon(
+                  onPressed: _isLocating || _isSubmitting ? null : _useCurrentPosition,
+                  icon: _isLocating
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.my_location),
+                  label: Text(
+                    _latitude == null
+                        ? 'Enregistrer ma position actuelle'
+                        : 'Position enregistrée',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Visible par vous seul. Utile car vous êtes sur place.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _questionController,
+                  enabled: !_isSubmitting,
+                  maxLength: 200,
+                  decoration: InputDecoration(
+                    labelText: 'Question de vérification (optionnel)',
+                    helperText: 'Par exemple : date de naissance sur la carte ?',
+                    helperMaxLines: 2,
+                    prefixIcon: const Icon(Icons.help_outline),
+                    errorText: _fieldErrors['verification_question'],
+                  ),
+                ),
+                TextField(
+                  controller: _answerController,
+                  enabled: !_isSubmitting,
+                  autocorrect: false,
+                  maxLength: 100,
+                  decoration: InputDecoration(
+                    labelText: 'Réponse attendue',
+                    helperText: 'Une bonne réponse débloque la mise en relation.',
+                    helperMaxLines: 2,
+                    prefixIcon: const Icon(Icons.key_outlined),
+                    errorText: _fieldErrors['verification_answer'],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               OutlinedButton.icon(
                 onPressed: _isSubmitting ? null : _pickDate,
                 icon: const Icon(Icons.calendar_today_outlined),

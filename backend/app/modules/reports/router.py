@@ -7,6 +7,8 @@ from app.core.rate_limit import limiter
 from app.modules.auth.dependencies import CurrentUser, DbSession
 from app.modules.reports import service
 from app.modules.reports.models import DocumentType, ReportKind
+from app.modules.claims import service as claims_service
+from app.modules.claims.schemas import ClaimCreate, ClaimRead
 from app.modules.reports.schemas import (
     SENEGAL_REGIONS,
     ReportCreate,
@@ -103,6 +105,41 @@ def create_report(
 ):
     return ReportRead.from_report(service.create_report(db, current_user, data))
 
+@router.post(
+    "/{report_id}/claims",
+    response_model=ClaimRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Revendications"],
+)
+@limiter.limit(settings.AUTH_RATE_LIMIT)
+def claim_report(
+    request: Request,
+    report_id: uuid.UUID,
+    data: ClaimCreate,
+    current_user: CurrentUser,
+    db: DbSession,
+):
+    """Demande de mise en relation sur un signalement.
+
+    Une bonne réponse à la question de vérification suffit à débloquer
+    l'échange des contacts, sinon le déclarant tranche.
+    """
+    report = service.get_public_report(db, report_id)
+    return claims_service.create_claim(
+        db,
+        report,
+        current_user,
+        message=data.message,
+        answer=data.answer.get_secret_value() if data.answer is not None else None,
+    )
+
+
+@router.post("/{report_id}/close", response_model=ReportRead)
+def close_report(report_id: uuid.UUID, current_user: CurrentUser, db: DbSession):
+    """Document restitué : le signalement sort de la liste et les demandes
+    encore en attente sont refusées."""
+    report = service.get_own_report(db, report_id, current_user)
+    return ReportRead.from_report(claims_service.close_report(db, report))
 
 @router.patch("/{report_id}", response_model=ReportRead)
 def update_report(

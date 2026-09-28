@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../reports/screens/my_reports_screen.dart';
-import '../../reports/screens/reports_list_screen.dart';
+import '../../reports/screens/reports_home_screen.dart';
+import '../../claims/screens/claims_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -14,24 +15,25 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
 
-  static const _titles = ['Rechercher', 'Mes déclarations', 'Profil'];
+    static const _titles = ['Rechercher', 'Mes déclarations', 'Demandes', 'Profil'];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(_titles[_index])),
-      body: IndexedStack(
+        body: IndexedStack(
         index: _index,
         children: const [
-          ReportsListScreen(),
+           ReportsHomeScreen(),
           MyReportsScreen(),
+          ClaimsScreen(),
           _ProfileTab(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (index) => setState(() => _index = index),
-        destinations: const [
+                destinations: const [
           NavigationDestination(
             icon: Icon(Icons.search_outlined),
             selectedIcon: Icon(Icons.search),
@@ -40,7 +42,12 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(
             icon: Icon(Icons.description_outlined),
             selectedIcon: Icon(Icons.description),
-            label: 'Mes déclarations',
+            label: 'Déclarations',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.handshake_outlined),
+            selectedIcon: Icon(Icons.handshake),
+            label: 'Demandes',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),

@@ -57,9 +57,12 @@ class Report {
     this.ownerNameMasked,
     this.commune,
     this.occurredOn,
+    this.verificationQuestion,
     this.placeDetail,
     this.isPublished,
     this.hasDocumentNumber,
+    this.latitude,
+    this.longitude,
   });
 
   final String id;
@@ -72,10 +75,18 @@ class Report {
   final String? commune;
   final DateTime? occurredOn;
 
+  /// Visible par tous : il faut pouvoir y répondre pour revendiquer.
+  final String? verificationQuestion;
+
   /// Champs présents uniquement dans la vue du propriétaire
   final String? placeDetail;
   final bool? isPublished;
   final bool? hasDocumentNumber;
+  final double? latitude;
+  final double? longitude;
+
+  bool get hasVerificationQuestion =>
+      verificationQuestion != null && verificationQuestion!.isNotEmpty;
 
   String get locationLabel =>
       commune == null || commune!.isEmpty ? region : '$commune, $region';
@@ -93,9 +104,12 @@ class Report {
       occurredOn: json['occurred_on'] == null
           ? null
           : DateTime.parse(json['occurred_on'] as String),
+      verificationQuestion: json['verification_question'] as String?,
       placeDetail: json['place_detail'] as String?,
       isPublished: json['is_published'] as bool?,
       hasDocumentNumber: json['has_document_number'] as bool?,
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
     );
   }
 }
