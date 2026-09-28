@@ -9,10 +9,11 @@ class ReportsRepository {
 
   final Dio _dio;
 
-  Future<List<Report>> listPublic({
+    Future<List<Report>> listPublic({
     ReportKind? kind,
     DocumentType? documentType,
     String? region,
+    String? search,
     int limit = 20,
     int offset = 0,
   }) async {
@@ -20,6 +21,7 @@ class ReportsRepository {
       'kind': ?kind?.value,
       'document_type': ?documentType?.value,
       'region': ?region,
+      'search': ?search,
       'limit': limit,
       'offset': offset,
     });

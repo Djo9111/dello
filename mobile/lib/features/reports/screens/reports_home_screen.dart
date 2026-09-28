@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/network/api_exception.dart';
@@ -6,6 +8,7 @@ import '../data/reports_repository.dart';
 import '../models/report.dart';
 import '../widgets/document_style.dart';
 import '../widgets/family_carousel.dart';
+import '../widgets/report_tile.dart';
 import 'report_public_detail_screen.dart';
 import 'reports_family_screen.dart';
 
@@ -18,17 +21,48 @@ class ReportsHomeScreen extends StatefulWidget {
 
 class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
   static const _previewSize = 10;
+  static const _searchDebounce = Duration(milliseconds: 450);
 
   final _repository = ReportsRepository();
+  final _searchController = TextEditingController();
 
+  Timer? _debounce;
   Map<DocumentType, List<Report>> _byFamily = {};
+  List<Report> _searchResults = [];
+  String _search = '';
   ReportKind? _kind;
   bool _isLoading = true;
   String? _error;
 
+  bool get _isSearching => _search.length >= 2;
+
   @override
   void initState() {
     super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  /// Attente avant l'appel : sans cela, une requête partirait à chaque
+  /// lettre tapée, et les réponses pourraient revenir dans le désordre.
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(_searchDebounce, () {
+      setState(() => _search = value.trim());
+      _load();
+    });
+  }
+
+  void _clearSearch() {
+    _debounce?.cancel();
+    _searchController.clear();
+    setState(() => _search = '');
     _load();
   }
 
@@ -39,24 +73,32 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
     });
 
     try {
-      // Une requête par famille, lancées ensemble : chaque ligne reste
-      // remplie même si une famille n'a que des signalements anciens.
-      final results = await Future.wait(
-        DocumentType.values.map(
-          (type) => _repository.listPublic(
-            kind: _kind,
-            documentType: type,
-            limit: _previewSize,
+      if (_isSearching) {
+        final results = await _repository.listPublic(
+          kind: _kind,
+          search: _search,
+          limit: 50,
+        );
+        if (mounted) setState(() => _searchResults = results);
+      } else {
+        // Une requête par famille, lancées ensemble : chaque ligne reste
+        // remplie même si une famille n'a que des signalements anciens.
+        final results = await Future.wait(
+          DocumentType.values.map(
+            (type) => _repository.listPublic(
+              kind: _kind,
+              documentType: type,
+              limit: _previewSize,
+            ),
           ),
-        ),
-      );
+        );
 
-      final grouped = <DocumentType, List<Report>>{};
-      for (var i = 0; i < DocumentType.values.length; i++) {
-        if (results[i].isNotEmpty) grouped[DocumentType.values[i]] = results[i];
+        final grouped = <DocumentType, List<Report>>{};
+        for (var i = 0; i < DocumentType.values.length; i++) {
+          if (results[i].isNotEmpty) grouped[DocumentType.values[i]] = results[i];
+        }
+        if (mounted) setState(() => _byFamily = grouped);
       }
-
-      if (mounted) setState(() => _byFamily = grouped);
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } finally {
@@ -90,7 +132,27 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+          child: TextField(
+            controller: _searchController,
+            onChanged: _onSearchChanged,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Numéro du document, commune, nom...',
+              prefixIcon: const Icon(Icons.search, color: AppTheme.inkSoft),
+              suffixIcon: _searchController.text.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: _clearSearch,
+                    ),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child: Row(
             children: [
               _FilterPill(
@@ -134,17 +196,10 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
       );
     }
 
+    if (_isSearching) return _buildSearchResults();
+
     if (_byFamily.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Text(
-            'Aucun signalement pour le moment.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: AppTheme.inkSoft),
-          ),
-        ),
-      );
+      return const _EmptyState(message: 'Aucun signalement pour le moment.');
     }
 
     final families = _byFamily.keys.toList();
@@ -192,6 +247,59 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildSearchResults() {
+    if (_searchResults.isEmpty) {
+      return const _EmptyState(
+        message: 'Aucun résultat.\nEssayez le numéro du document ou une commune.',
+      );
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '${_searchResults.length} résultat${_searchResults.length > 1 ? 's' : ''}',
+              style: const TextStyle(color: AppTheme.inkSoft, fontSize: 13),
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            itemCount: _searchResults.length,
+            itemBuilder: (context, index) => ReportRow(
+              report: _searchResults[index],
+              onTap: () => _openReport(_searchResults[index]),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: AppTheme.inkSoft),
+        ),
       ),
     );
   }

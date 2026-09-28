@@ -72,6 +72,11 @@ def list_reports(
     kind: ReportKind | None = None,
     document_type: DocumentType | None = None,
     region: str | None = Query(None, max_length=60),
+    search: str | None = Query(
+        None,
+        max_length=60,
+        description="Numero de document, commune, region ou nom masque",
+    ),
     limit: int = Query(20, ge=1, le=50),
     offset: int = Query(0, ge=0),
 ):
@@ -80,6 +85,7 @@ def list_reports(
         kind=kind,
         document_type=document_type,
         region=_check_region(region),
+        search=search,
         limit=limit,
         offset=offset,
     )

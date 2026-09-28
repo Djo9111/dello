@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/location/location_service.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/theme/app_theme.dart';
 import '../data/reports_repository.dart';
 import '../models/report.dart';
-import '../../../core/location/location_service.dart';
-
 
 class ReportFormScreen extends StatefulWidget {
   const ReportFormScreen({super.key});
@@ -19,13 +19,13 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
   final _ownerNameController = TextEditingController();
   final _communeController = TextEditingController();
   final _placeController = TextEditingController();
+  final _questionController = TextEditingController();
+  final _answerController = TextEditingController();
 
   ReportKind _kind = ReportKind.lost;
   DocumentType _documentType = DocumentType.cni;
   String _region = senegalRegions.first;
   DateTime? _occurredOn;
-  final _questionController = TextEditingController();
-  final _answerController = TextEditingController();
 
   double? _latitude;
   double? _longitude;
@@ -58,7 +58,7 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
     if (picked != null) setState(() => _occurredOn = picked);
   }
 
-    /// Position proposée uniquement pour un document trouvé : le déclarant
+  /// Position proposée uniquement pour un document trouvé : le déclarant
   /// est alors sur place. Pour une perte, la position actuelle serait
   /// souvent le domicile, donc une information fausse et sensible.
   Future<void> _useCurrentPosition() async {
@@ -98,7 +98,7 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
     });
 
     try {
-        await _repository.create(
+      await _repository.create(
         kind: _kind,
         documentType: _documentType,
         region: _region,
@@ -115,6 +115,7 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
 
       // Le numéro ne reste pas en mémoire après l'envoi
       _numberController.clear();
+      _answerController.clear();
 
       if (mounted) Navigator.of(context).pop(true);
     } on ApiException catch (error) {
@@ -234,29 +235,30 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-                            if (_kind == ReportKind.found) ...[
+              if (_kind == ReportKind.found) ...[
                 OutlinedButton.icon(
-                  onPressed: _isLocating || _isSubmitting ? null : _useCurrentPosition,
+                  onPressed:
+                      _isLocating || _isSubmitting ? null : _useCurrentPosition,
                   icon: _isLocating
                       ? const SizedBox(
                           height: 18,
                           width: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.my_location),
+                      : Icon(
+                          _latitude == null ? Icons.my_location : Icons.check,
+                          color: _latitude == null ? null : AppTheme.success,
+                        ),
                   label: Text(
                     _latitude == null
                         ? 'Enregistrer ma position actuelle'
                         : 'Position enregistrée',
                   ),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(50),
-                  ),
                 ),
                 const SizedBox(height: 4),
                 const Text(
                   'Visible par vous seul. Utile car vous êtes sur place.',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                  style: TextStyle(fontSize: 12, color: AppTheme.inkSoft),
                 ),
                 const SizedBox(height: 16),
                 TextField(
@@ -290,9 +292,6 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
                 onPressed: _isSubmitting ? null : _pickDate,
                 icon: const Icon(Icons.calendar_today_outlined),
                 label: Text(dateLabel),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(50),
-                ),
               ),
               if (_generalError != null) ...[
                 const SizedBox(height: 16),
@@ -300,7 +299,7 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(_generalError!),
                 ),
