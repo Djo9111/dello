@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     AUTH_RATE_LIMIT: str = "5/minute"
     REPORT_CREATE_RATE_LIMIT: str = "20/hour"
 
+    # Vérification du numéro par code SMS
+    OTP_CODE_TTL_MINUTES: int = Field(default=10, ge=2, le=30)
+    OTP_MAX_ATTEMPTS: int = Field(default=5, ge=3, le=10)
+    OTP_RESEND_COOLDOWN_SECONDS: int = Field(default=60, ge=30, le=300)
+    OTP_MAX_PER_HOUR: int = Field(default=3, ge=1, le=10)
+    SMS_PROVIDER: Literal["console"] = "console"
+
     @model_validator(mode="after")
     def check_security(self) -> "Settings":
         jwt_key = self.JWT_SECRET_KEY.get_secret_value()
