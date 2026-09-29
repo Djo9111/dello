@@ -92,6 +92,40 @@ class LoginRequest(StrictModel):
             raise ValueError("Identifiants invalides")
         return value
 
+class VerifyPhoneRequest(StrictModel):
+    phone_number: str = Field(max_length=30)
+    code: str = Field(min_length=4, max_length=10)
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, value: str) -> str:
+        return normalize_senegal_mobile(value)
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str) -> str:
+        cleaned = "".join(ch for ch in value if ch.isdigit())
+        if not cleaned:
+            raise ValueError("Code invalide")
+        return cleaned
+
+
+class ResendCodeRequest(StrictModel):
+    phone_number: str = Field(max_length=30)
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, value: str) -> str:
+        return normalize_senegal_mobile(value)
+
+
+class PendingVerificationResponse(BaseModel):
+    """Réponse identique que le numéro ait déjà un compte ou non :
+    sinon l'inscription dirait qui est inscrit sur Dello."""
+
+    message: str = (
+        "Si ce numéro peut être utilisé, un code de vérification vient d'être envoyé."
+    )
 
 class RefreshRequest(StrictModel):
     refresh_token: SecretStr

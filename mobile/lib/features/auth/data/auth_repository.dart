@@ -5,8 +5,6 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/storage/token_storage.dart';
 import '../models/auth_user.dart';
 
-/// Appels à l'API d'authentification. Traduit toute erreur réseau
-/// en ApiException : les écrans ne voient jamais de DioException.
 class AuthRepository {
   AuthRepository({Dio? dio, TokenStorage? storage})
       : _dio = dio ?? ApiClient.instance.dio,
@@ -15,13 +13,15 @@ class AuthRepository {
   final Dio _dio;
   final TokenStorage _storage;
 
-  Future<AuthUser> register({
+  /// Première étape : aucun compte n'est créé, un code part par SMS.
+  /// La réponse est la même que le numéro soit libre ou déjà inscrit.
+  Future<void> startRegistration({
     required String phoneNumber,
     required String fullName,
     required String password,
   }) async {
     try {
-      final response = await _dio.post<Map<String, dynamic>>(
+      await _dio.post<Map<String, dynamic>>(
         '/auth/register',
         data: {
           'phone_number': phoneNumber,
@@ -29,7 +29,33 @@ class AuthRepository {
           'password': password,
         },
       );
-      return AuthUser.fromJson(response.data!);
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    }
+  }
+
+  /// Seconde étape : le compte est créé et l'utilisateur connecté.
+  Future<void> verifyPhone({
+    required String phoneNumber,
+    required String code,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/auth/verify',
+        data: {'phone_number': phoneNumber, 'code': code},
+      );
+      await _saveTokens(response.data!);
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    }
+  }
+
+  Future<void> resendCode(String phoneNumber) async {
+    try {
+      await _dio.post<Map<String, dynamic>>(
+        '/auth/resend-code',
+        data: {'phone_number': phoneNumber},
+      );
     } on DioException catch (error) {
       throw ApiException.from(error);
     }
@@ -44,12 +70,7 @@ class AuthRepository {
         '/auth/login',
         data: {'phone_number': phoneNumber, 'password': password},
       );
-
-      final data = response.data!;
-      await _storage.saveTokens(
-        accessToken: data['access_token'] as String,
-        refreshToken: data['refresh_token'] as String,
-      );
+      await _saveTokens(response.data!);
     } on DioException catch (error) {
       throw ApiException.from(error);
     }
@@ -84,4 +105,11 @@ class AuthRepository {
   }
 
   Future<bool> hasStoredSession() => _storage.hasSession();
+
+  Future<void> _saveTokens(Map<String, dynamic> data) async {
+    await _storage.saveTokens(
+      accessToken: data['access_token'] as String,
+      refreshToken: data['refresh_token'] as String,
+    );
+  }
 }

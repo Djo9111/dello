@@ -12,11 +12,14 @@ void main() {
 class DelloApp extends StatelessWidget {
   const DelloApp({super.key});
 
+  static final navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Dello',
       debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey,
       theme: AppTheme.light,
       home: const AuthGate(),
     );
@@ -45,6 +48,15 @@ class _AuthGateState extends State<AuthGate> {
     return ListenableBuilder(
       listenable: AuthController.instance,
       builder: (context, _) {
+        // Une session perdue peut survenir depuis n'importe quel écran :
+        // on revient à la racine pour que la connexion ne s'affiche pas
+        // sous une pile d'écrans devenus inaccessibles.
+        if (AuthController.instance.status == AuthStatus.unauthenticated) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            DelloApp.navigatorKey.currentState?.popUntil((route) => route.isFirst);
+          });
+        }
+
         switch (AuthController.instance.status) {
           case AuthStatus.checking:
             return const Scaffold(

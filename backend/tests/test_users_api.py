@@ -4,16 +4,16 @@ from app.core.config import settings
 from app.modules.auth.models import RefreshToken
 from app.modules.users.models import User
 
+from tests.helpers import allow_new_code, create_account
+
 API = settings.API_V1_PREFIX
 PHONE = "77 123 45 67"
 PASSWORD = "Tamarin-Soleil-9"
 
 
 def _register(client, phone=PHONE):
-    return client.post(
-        f"{API}/auth/register",
-        json={"phone_number": phone, "full_name": "Awa Diop", "password": PASSWORD},
-    )
+    """Inscription complète : le compte n'existe qu'après vérification."""
+    return create_account(client, phone)
 
 
 def _login(client, phone=PHONE):
@@ -87,12 +87,16 @@ def test_delete_only_affects_that_user(client, db_session):
     assert [user.phone_number for user in remaining] == ["+221781112233"]
 
 
-def test_phone_can_be_reused_after_deletion(client):
+def test_phone_can_be_reused_after_deletion(client, db_session):
     _register(client)
     tokens = _login(client)
     _delete(client, tokens)
 
-    assert _register(client).status_code == 201
+    # En usage réel, l'utilisateur patienterait avant de redemander un code
+    allow_new_code(db_session)
+
+    assert client.get(f"{API}/users/me", headers=_register(client)).status_code == 200
+
 
 def test_deleting_account_keeps_found_reports_anonymized(client, db_session):
     from datetime import date
@@ -146,4 +150,4 @@ def test_deleting_account_removes_lost_reports(client, db_session):
     db_session.commit()
 
     assert _delete(client, tokens).status_code == 204
-    assert db_session.scalars(select(Report)).all() == []    
+    assert db_session.scalars(select(Report)).all() == []

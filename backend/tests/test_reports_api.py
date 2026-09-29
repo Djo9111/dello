@@ -1,15 +1,14 @@
 from app.core.config import settings
 
+from tests.helpers import create_account
+
 API = settings.API_V1_PREFIX
 PASSWORD = "Tamarin-Soleil-9"
 NUMBER = "1234567890123"
 
 
 def _account(client, phone="77 123 45 67", name="Awa Diop") -> dict:
-    client.post(
-        f"{API}/auth/register",
-        json={"phone_number": phone, "full_name": name, "password": PASSWORD},
-    )
+    return create_account(client, phone, name)
     tokens = client.post(
         f"{API}/auth/login", json={"phone_number": phone, "password": PASSWORD}
     ).json()

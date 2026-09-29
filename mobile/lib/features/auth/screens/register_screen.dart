@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/theme/app_theme.dart';
 import '../auth_controller.dart';
+import 'verify_phone_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -37,13 +39,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _fieldErrors = {};
     });
 
+    final phone = _phoneController.text.trim();
+
     try {
-      await AuthController.instance.register(
-        phoneNumber: _phoneController.text,
-        fullName: _nameController.text,
+      await AuthController.instance.startRegistration(
+        phoneNumber: phone,
+        fullName: _nameController.text.trim(),
         password: _passwordController.text,
       );
-      // L'aiguillage vers l'accueil est fait par AuthGate
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => VerifyPhoneScreen(phoneNumber: _toE164(phone)),
+        ),
+      );
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -53,6 +63,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  /// Le serveur attend le même format pour la vérification que pour
+  /// l'inscription, quel que soit ce que l'utilisateur a tapé.
+  String _toE164(String input) {
+    final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
+    final local = digits.length > 9 ? digits.substring(digits.length - 9) : digits;
+    return '+221$local';
   }
 
   @override
@@ -85,6 +103,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: InputDecoration(
                   labelText: 'Numéro de téléphone',
                   hintText: '77 123 45 67',
+                  helperText: 'Un code de vérification y sera envoyé',
                   prefixIcon: const Icon(Icons.phone_outlined),
                   errorText: _fieldErrors['phone_number'],
                 ),
@@ -113,7 +132,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               if (_generalError != null) ...[
                 const SizedBox(height: 16),
-                _ErrorBanner(message: _generalError!),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(_generalError!)),
+                    ],
+                  ),
+                ),
               ],
               const SizedBox(height: 24),
               FilledButton(
@@ -127,42 +159,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text('Créer mon compte'),
+                    : const Text('Recevoir mon code'),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Votre compte sera créé une fois le numéro vérifié.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: AppTheme.inkSoft),
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: scheme.errorContainer,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.error_outline, size: 20, color: scheme.onErrorContainer),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: TextStyle(color: scheme.onErrorContainer),
-            ),
-          ),
-        ],
       ),
     );
   }

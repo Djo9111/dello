@@ -33,6 +33,7 @@ from app.modules.reports.router import router as reports_router
 from app.modules.auth.router import router as auth_router
 from app.modules.users.exceptions import WrongPasswordError
 from app.modules.users.router import router as users_router
+from app.modules.otp.exceptions import InvalidOtpError, OtpThrottledError
 
 logger = logging.getLogger("dello")
 
@@ -178,6 +179,22 @@ async def no_question_handler(request: Request, exc: NoVerificationQuestionError
     return _error(
         status.HTTP_400_BAD_REQUEST,
         "Ce signalement ne comporte pas de question de vérification",
+    )
+
+@app.exception_handler(InvalidOtpError)
+async def invalid_otp_handler(request: Request, exc: InvalidOtpError):
+    return _error(
+        status.HTTP_400_BAD_REQUEST,
+        "Code invalide ou expiré. Demandez un nouveau code.",
+    )
+
+
+@app.exception_handler(OtpThrottledError)
+async def otp_throttled_handler(request: Request, exc: OtpThrottledError):
+    return _error(
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "Un code a déjà été envoyé. Patientez avant d'en demander un autre.",
+        headers={"Retry-After": str(exc.retry_after_seconds)},
     )
 
 @app.exception_handler(Exception)

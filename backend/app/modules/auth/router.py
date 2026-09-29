@@ -6,19 +6,62 @@ from app.modules.auth import service
 from app.modules.auth.dependencies import CurrentUser, DbSession
 from app.modules.auth.schemas import (
     LoginRequest,
+    PendingVerificationResponse,
     RefreshRequest,
     RegisterRequest,
+    ResendCodeRequest,
     TokenResponse,
+    VerifyPhoneRequest,
 )
+
+
 from app.modules.users.schemas import UserRead
 
 router = APIRouter(prefix="/auth", tags=["Authentification"])
 
 
-@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+from app.modules.auth.schemas import (
+    LoginRequest,
+    PendingVerificationResponse,
+    RefreshRequest,
+    RegisterRequest,
+    ResendCodeRequest,
+    TokenResponse,
+    VerifyPhoneRequest,
+)
+
+router = APIRouter(prefix="/auth", tags=["Authentification"])
+
+
+@router.post(
+    "/register",
+    response_model=PendingVerificationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 @limiter.limit(settings.AUTH_RATE_LIMIT)
 def register(request: Request, data: RegisterRequest, db: DbSession):
-    return service.register(db, data)
+    """Première étape. Aucun compte n'est créé tant que le numéro n'est
+    pas vérifié, et la réponse ne dit pas si ce numéro est déjà inscrit."""
+    service.start_registration(db, data)
+    return PendingVerificationResponse()
+
+
+@router.post("/verify", response_model=TokenResponse)
+@limiter.limit(settings.AUTH_RATE_LIMIT)
+def verify_phone(request: Request, data: VerifyPhoneRequest, db: DbSession):
+    """Seconde étape : le compte est créé et l'utilisateur est connecté."""
+    return service.complete_registration(db, data.phone_number, data.code)
+
+
+@router.post(
+    "/resend-code",
+    response_model=PendingVerificationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+@limiter.limit(settings.AUTH_RATE_LIMIT)
+def resend_code(request: Request, data: ResendCodeRequest, db: DbSession):
+    service.resend_registration_code(db, data.phone_number)
+    return PendingVerificationResponse()
 
 
 @router.post("/login", response_model=TokenResponse)

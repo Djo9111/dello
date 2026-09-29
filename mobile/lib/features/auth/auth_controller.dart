@@ -47,27 +47,44 @@ class AuthController extends ChangeNotifier {
     required String password,
   }) async {
     await _repository.login(phoneNumber: phoneNumber, password: password);
-    user = await _repository.currentUser();
-    status = AuthStatus.authenticated;
-    notifyListeners();
+    await _loadCurrentUser();
   }
 
-  Future<void> register({
+  /// Demande d'un code. Le compte n'existe pas encore à ce stade.
+  Future<void> startRegistration({
     required String phoneNumber,
     required String fullName,
     required String password,
-  }) async {
-    await _repository.register(
+  }) {
+    return _repository.startRegistration(
       phoneNumber: phoneNumber,
       fullName: fullName,
       password: password,
     );
-    await login(phoneNumber: phoneNumber, password: password);
+  }
+
+  Future<void> resendCode(String phoneNumber) =>
+      _repository.resendCode(phoneNumber);
+
+  /// Vérification du code : le compte est créé côté serveur et
+  /// l'utilisateur se retrouve connecté.
+  Future<void> verifyPhone({
+    required String phoneNumber,
+    required String code,
+  }) async {
+    await _repository.verifyPhone(phoneNumber: phoneNumber, code: code);
+    await _loadCurrentUser();
   }
 
   Future<void> logout() async {
     await _repository.logout();
     _setUnauthenticated();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    user = await _repository.currentUser();
+    status = AuthStatus.authenticated;
+    notifyListeners();
   }
 
   void _handleSessionExpired() {

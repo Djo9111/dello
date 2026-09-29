@@ -8,26 +8,41 @@ from app.modules.auth import service
 from app.modules.auth.exceptions import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
-    PhoneAlreadyRegisteredError,
 )
 from app.modules.auth.models import RefreshToken
 from app.modules.auth.schemas import LoginRequest, RegisterRequest
+from app.modules.otp.exceptions import InvalidOtpError
 from app.modules.users.models import User
+from app.shared.validators import normalize_senegal_mobile
+
+from tests.helpers import allow_new_code
+from tests.sms_outbox import OUTBOX
 
 PHONE = "+221771234567"
 PASSWORD = "Tamarin-Soleil-9"
 
 
 def _register(db, phone=PHONE, password=PASSWORD) -> User:
-    return service.register(
+    """Inscription complète : demande de code, puis vérification.
+
+    Le code est lu dans la boîte d'envoi de test, comme l'utilisateur le
+    lirait sur son téléphone.
+    """
+    service.start_registration(
         db,
         RegisterRequest(phone_number=phone, full_name="Awa Diop", password=password),
     )
+    service.complete_registration(db, _normalize(phone), OUTBOX.last_code())
+
+    return db.scalar(select(User).where(User.phone_number == _normalize(phone)))
+
+
+def _normalize(phone: str) -> str:
+    return normalize_senegal_mobile(phone)
 
 
 def _login(db, phone=PHONE, password=PASSWORD):
     return service.login(db, LoginRequest(phone_number=phone, password=password))
-
 
 # ---------------------------------------------------------------------------
 # Inscription
@@ -42,11 +57,21 @@ def test_register_stores_hashed_password(db_session):
     assert PASSWORD not in user.hashed_password
 
 
-def test_register_duplicate_phone_is_rejected(db_session):
+def test_second_registration_sends_no_pending_registration(db_session):
+    """Un numéro déjà inscrit reçoit un code, mais aucune inscription
+    n'est mise en attente : le code ne mène nulle part."""
     _register(db_session)
+    allow_new_code(db_session)
 
-    with pytest.raises(PhoneAlreadyRegisteredError):
-        _register(db_session, phone="77 123 45 67")
+    service.start_registration(
+        db_session,
+        RegisterRequest(
+            phone_number="77 123 45 67", full_name="Usurpateur", password=PASSWORD
+        ),
+    )
+
+    with pytest.raises(InvalidOtpError):
+        service.complete_registration(db_session, PHONE, OUTBOX.last_code())
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +213,13 @@ def test_expired_refresh_token_is_rejected(db_session):
     _register(db_session)
     tokens = _login(db_session)
 
-    stored = db_session.scalar(select(RefreshToken))
+    # L'inscription connecte déjà l'utilisateur, il y a donc plusieurs
+    # sessions : on vise celle qui correspond au token testé.
+    stored = db_session.scalar(
+        select(RefreshToken).where(
+            RefreshToken.token_hash == hash_refresh_token(tokens.refresh_token)
+        )
+    )
     stored.expires_at = datetime.now(UTC) - timedelta(seconds=1)
     db_session.commit()
 

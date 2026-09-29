@@ -69,7 +69,13 @@ def check_can_send(db: Session, phone_number: str, purpose: OtpPurpose) -> None:
 # ---------------------------------------------------------------------------
 
 
-def issue_code(db: Session, phone_number: str, purpose: OtpPurpose) -> str:
+def issue_code(
+    db: Session,
+    phone_number: str,
+    purpose: OtpPurpose,
+    *,
+    message: str | None = None,
+) -> str:
     """Crée un code, invalide les précédents et l'envoie.
 
     Retourne le code en clair pour les tests uniquement : l'appelant ne
@@ -103,8 +109,11 @@ def issue_code(db: Session, phone_number: str, purpose: OtpPurpose) -> str:
 
     get_sms_sender().send(
         phone_number,
-        f"Dello : votre code de verification est {code}. "
-        f"Il expire dans {settings.OTP_CODE_TTL_MINUTES} minutes.",
+        message
+        or (
+            f"Dello : votre code de verification est {code}. "
+            f"Il expire dans {settings.OTP_CODE_TTL_MINUTES} minutes."
+        ),
     )
 
     return code

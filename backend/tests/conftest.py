@@ -17,6 +17,9 @@ from app.core.database import engine  # noqa: E402
 from app.core.rate_limit import limiter  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Base  # noqa: E402
+from app.modules.otp import service as otp_service  # noqa: E402
+
+from tests.sms_outbox import OUTBOX  # noqa: E402
 
 ALEMBIC_INI = Path(__file__).resolve().parents[1] / "alembic.ini"
 
@@ -41,6 +44,14 @@ def db_session():
     with Session(engine) as session:
         yield session
     _truncate_all_tables()
+
+
+@pytest.fixture(autouse=True)
+def sms_outbox(monkeypatch):
+    """Remplace l'envoi de SMS et vide la boîte avant chaque test."""
+    OUTBOX.clear()
+    monkeypatch.setattr(otp_service, "get_sms_sender", lambda: OUTBOX)
+    return OUTBOX
 
 
 @pytest.fixture

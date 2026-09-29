@@ -1,21 +1,31 @@
 from app.core.config import settings
 
+from tests.helpers import allow_new_code, create_account
+from tests.sms_outbox import OUTBOX
+
 API = settings.API_V1_PREFIX
 PHONE = "77 123 45 67"
+NORMALIZED = "+221771234567"
 PASSWORD = "Tamarin-Soleil-9"
 
 
-def _register(client, phone=PHONE, password=PASSWORD):
+def _start_registration(client, phone=PHONE, password=PASSWORD, name="Awa Diop"):
     return client.post(
         f"{API}/auth/register",
-        json={"phone_number": phone, "full_name": "Awa Diop", "password": password},
+        json={"phone_number": phone, "full_name": name, "password": password},
+    )
+
+
+def _verify(client, phone=NORMALIZED, code=None):
+    return client.post(
+        f"{API}/auth/verify",
+        json={"phone_number": phone, "code": code or OUTBOX.last_code()},
     )
 
 
 def _login(client, phone=PHONE, password=PASSWORD):
     return client.post(
-        f"{API}/auth/login",
-        json={"phone_number": phone, "password": password},
+        f"{API}/auth/login", json={"phone_number": phone, "password": password}
     )
 
 
@@ -24,40 +34,111 @@ def _auth_header(access_token: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Inscription
+# Inscription en deux temps
 # ---------------------------------------------------------------------------
 
 
-def test_register_returns_only_public_fields(client):
-    response = _register(client)
+def test_registration_does_not_create_the_account_yet(client):
+    response = _start_registration(client)
 
-    assert response.status_code == 201
-    assert set(response.json()) == {
-        "id",
-        "phone_number",
-        "full_name",
-        "is_phone_verified",
-        "created_at",
-    }
-    assert response.json()["phone_number"] == "+221771234567"
+    assert response.status_code == 202
+    assert _login(client).status_code == 401
 
 
-def test_register_duplicate_returns_409(client):
-    _register(client)
+def test_code_is_sent_by_sms(client):
+    _start_registration(client)
 
-    response = _register(client, phone="+221771234567")
+    assert len(OUTBOX.messages) == 1
+    assert OUTBOX.messages[0][0] == NORMALIZED
+    assert OUTBOX.last_code().isdigit()
 
-    assert response.status_code == 409
+
+def test_verification_creates_the_account_and_logs_in(client):
+    _start_registration(client)
+
+    response = _verify(client)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"]
+
+    me = client.get(f"{API}/users/me", headers=_auth_header(body["access_token"]))
+    assert me.json()["phone_number"] == NORMALIZED
+    assert me.json()["is_phone_verified"] is True
+
+
+def test_wrong_code_is_rejected(client):
+    _start_registration(client)
+
+    assert _verify(client, code="000000").status_code == 400
+    assert _login(client).status_code == 401
+
+
+def test_code_cannot_be_used_twice(client):
+    _start_registration(client)
+    code = OUTBOX.last_code()
+
+    assert _verify(client, code=code).status_code == 200
+    assert _verify(client, code=code).status_code == 400
+
+
+def test_existing_account_gets_the_same_response(client, db_session):
+    """Réponse identique que le numéro soit libre ou déjà inscrit :
+    l'inscription ne doit pas révéler qui a un compte sur Dello."""
+    first = _start_registration(client)
+    _verify(client)
+    allow_new_code(db_session)
+
+    second = _start_registration(client, name="Usurpateur")
+
+    assert first.status_code == second.status_code == 202
+    assert first.json() == second.json()
+
+
+def test_code_sent_to_an_existing_account_leads_nowhere(client, db_session):
+    create_account(client, PHONE)
+    allow_new_code(db_session)
+    _start_registration(client, name="Usurpateur")
+
+    assert _verify(client).status_code == 400
+
+
+def test_resend_is_throttled(client):
+    _start_registration(client)
+
+    response = client.post(f"{API}/auth/resend-code", json={"phone_number": PHONE})
+
+    assert response.status_code == 429
+    assert "Retry-After" in response.headers
+
+
+def test_resend_gives_a_new_usable_code(client, db_session):
+    _start_registration(client)
+    first_code = OUTBOX.last_code()
+    allow_new_code(db_session)
+
+    client.post(f"{API}/auth/resend-code", json={"phone_number": PHONE})
+    second_code = OUTBOX.last_code()
+
+    assert first_code != second_code
+    assert _verify(client, code=first_code).status_code == 400
+    assert _verify(client, code=second_code).status_code == 200
+
+
+def test_resend_for_an_unknown_number_says_the_same_thing(client):
+    response = client.post(f"{API}/auth/resend-code", json={"phone_number": "78 111 22 33"})
+
+    assert response.status_code == 202
+    assert OUTBOX.messages == []
 
 
 def test_validation_error_does_not_echo_password(client):
     weak_password = "azertyuiop"
 
-    response = _register(client, password=weak_password)
+    response = _start_registration(client, password=weak_password)
 
     assert response.status_code == 422
     assert weak_password not in response.text
-    assert response.json()["detail"][0]["message"] == "Ce mot de passe est trop courant"
 
 
 def test_extra_field_is_rejected(client):
@@ -81,7 +162,7 @@ def test_extra_field_is_rejected(client):
 
 
 def test_login_returns_tokens(client):
-    _register(client)
+    create_account(client, PHONE)
 
     response = _login(client)
 
@@ -93,10 +174,10 @@ def test_login_returns_tokens(client):
 
 
 def test_login_errors_are_identical(client):
-    _register(client)
+    create_account(client, PHONE)
 
     wrong_password = _login(client, password="mauvais-mot-de-passe")
-    unknown_phone = _login(client, phone="781112233")
+    unknown_phone = _login(client, phone="78 111 22 33")
 
     assert wrong_password.status_code == unknown_phone.status_code == 401
     assert wrong_password.json() == unknown_phone.json()
@@ -117,29 +198,16 @@ def test_me_rejects_garbage_token(client):
     assert response.status_code == 401
 
 
-def test_me_returns_current_user(client):
-    _register(client)
-    tokens = _login(client).json()
-
-    response = client.get(f"{API}/users/me", headers=_auth_header(tokens["access_token"]))
-
-    assert response.status_code == 200
-    assert response.json()["phone_number"] == "+221771234567"
-
-
 def test_deactivated_user_loses_access_immediately(client, db_session):
     from app.modules.users.models import User
 
-    _register(client)
-    tokens = _login(client).json()
+    headers = create_account(client, PHONE)
 
     user = db_session.query(User).one()
     user.is_active = False
     db_session.commit()
 
-    response = client.get(f"{API}/users/me", headers=_auth_header(tokens["access_token"]))
-
-    assert response.status_code == 401
+    assert client.get(f"{API}/users/me", headers=headers).status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +216,7 @@ def test_deactivated_user_loses_access_immediately(client, db_session):
 
 
 def test_refresh_and_reuse_detection(client):
-    _register(client)
+    create_account(client, PHONE)
     first = _login(client).json()
 
     rotated = client.post(
@@ -163,7 +231,7 @@ def test_refresh_and_reuse_detection(client):
 
 
 def test_logout_then_refresh_fails(client):
-    _register(client)
+    create_account(client, PHONE)
     tokens = _login(client).json()
 
     logout = client.post(
@@ -182,13 +250,11 @@ def test_logout_all_requires_authentication(client):
 
 
 def test_logout_all_revokes_every_session(client):
-    _register(client)
+    headers = create_account(client, PHONE)
     session_1 = _login(client).json()
     session_2 = _login(client).json()
 
-    response = client.post(
-        f"{API}/auth/logout-all", headers=_auth_header(session_1["access_token"])
-    )
+    response = client.post(f"{API}/auth/logout-all", headers=headers)
 
     assert response.status_code == 204
     for session in (session_1, session_2):

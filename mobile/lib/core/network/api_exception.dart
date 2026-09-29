@@ -7,11 +7,15 @@ class ApiException implements Exception {
     required this.message,
     this.statusCode,
     this.fieldErrors = const {},
+    this.retryAfterSeconds,
   });
 
   final String message;
   final int? statusCode;
   final Map<String, String> fieldErrors;
+
+  /// Délai indiqué par le serveur avant une nouvelle tentative (en-tête Retry-After)
+  final int? retryAfterSeconds;
 
   bool get isUnauthorized => statusCode == 401;
   bool get isRateLimited => statusCode == 429;
@@ -33,10 +37,17 @@ class ApiException implements Exception {
     final status = response?.statusCode;
     final data = response?.data;
     final detail = data is Map<String, dynamic> ? data['detail'] : null;
+    final retryAfter = int.tryParse(
+      response?.headers.value('retry-after') ?? '',
+    );
 
     // Erreur simple : {"detail": "Numéro ou mot de passe incorrect"}
     if (detail is String) {
-      return ApiException(message: detail, statusCode: status);
+      return ApiException(
+        message: detail,
+        statusCode: status,
+        retryAfterSeconds: retryAfter,
+      );
     }
 
     // Erreur de validation : {"detail": [{"field": ..., "message": ...}]}
@@ -58,12 +69,14 @@ class ApiException implements Exception {
         message: messages.isEmpty ? 'Données invalides' : messages.first,
         statusCode: status,
         fieldErrors: fieldErrors,
+        retryAfterSeconds: retryAfter,
       );
     }
 
     return ApiException(
       message: 'Une erreur est survenue. Réessayez.',
       statusCode: status,
+      retryAfterSeconds: retryAfter,
     );
   }
 
