@@ -157,7 +157,7 @@ class _ClaimList extends StatelessWidget {
             ),
             child: ListTile(
               onTap: () => onTap(claim),
-              title: Text(claim.report.documentType.label),
+              title: Text(claim.report.documentsLabel),
               subtitle: Text(
                 '${claim.report.locationLabel} · ${claim.status.label}',
               ),

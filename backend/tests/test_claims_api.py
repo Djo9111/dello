@@ -23,8 +23,7 @@ def _owner(client):
 def _found_report(client, headers, *, with_question=True, with_gps=False) -> dict:
     payload = {
         "kind": "found",
-        "document_type": "cni",
-        "document_number": NUMBER,
+        "documents": [{"document_type": "cni", "document_number": NUMBER}],
         "owner_name": "Modienne GUISSE",
         "region": "Dakar",
         "commune": "Keur Massar",

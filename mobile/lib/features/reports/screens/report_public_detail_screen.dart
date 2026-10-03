@@ -75,15 +75,28 @@ class _ReportPublicDetailScreenState extends State<ReportPublicDetailScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Text(
-            report.documentType.label,
+                    Text(
+            report.documentsLabel,
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
-          Text('${report.kind.label} · ${report.locationLabel}'),
+          Text('${report.kindLabel} · ${report.locationLabel}'),
           if (report.ownerNameMasked != null) ...[
             const SizedBox(height: 12),
             Text('Nom sur le document : ${report.ownerNameMasked}'),
+          ],
+                    if (report.documents.length > 1) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: report.documents
+                  .map((document) => Chip(
+                        label: Text(document.documentType.label),
+                        visualDensity: VisualDensity.compact,
+                      ))
+                  .toList(),
+            ),
           ],
           const Divider(height: 32),
           const Text(

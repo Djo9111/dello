@@ -67,6 +67,18 @@ class ClaimRead(BaseModel):
     resolved_at: datetime | None
     report: ReportPublic
 
+    @classmethod
+    def from_claim(cls, claim) -> "ClaimRead":
+        return cls(
+            id=claim.id,
+            status=claim.status,
+            message=claim.message,
+            answer_attempts=claim.answer_attempts,
+            created_at=claim.created_at,
+            resolved_at=claim.resolved_at,
+            report=ReportPublic.from_report(claim.report),
+        )
+
 
 class ContactRead(BaseModel):
     """Coordonnées de l'autre partie, une fois la demande acceptée."""

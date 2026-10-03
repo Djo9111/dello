@@ -13,7 +13,7 @@ class ReportCarouselCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = DocumentStyle.of(report.documentType);
+    final style = DocumentStyle.of(report.mainDocumentType);
     final isFound = report.kind == ReportKind.found;
 
     return Card(
@@ -36,12 +36,12 @@ class ReportCarouselCard extends StatelessWidget {
                     child: Icon(style.icon, color: style.color, size: 22),
                   ),
                   const Spacer(),
-                  _KindBadge(isFound: isFound),
+                  _KindBadge(isFound: isFound, label: report.kindLabel),
                 ],
               ),
               const Spacer(),
               Text(
-                report.ownerNameMasked ?? report.documentType.label,
+                report.ownerNameMasked ?? report.documentsLabel,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -49,6 +49,13 @@ class ReportCarouselCard extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                   color: AppTheme.ink,
                 ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                report.documentsLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, color: AppTheme.inkSoft),
               ),
               const SizedBox(height: 4),
               Row(
@@ -65,20 +72,6 @@ class ReportCarouselCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (report.hasVerificationQuestion) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(Icons.verified_user_outlined,
-                        size: 14, color: AppTheme.success),
-                    const SizedBox(width: 4),
-                    const Text(
-                      'Vérification immédiate possible',
-                      style: TextStyle(fontSize: 12, color: AppTheme.success),
-                    ),
-                  ],
-                ),
-              ],
             ],
           ),
         ),
@@ -97,7 +90,7 @@ class ReportRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = DocumentStyle.of(report.documentType);
+    final style = DocumentStyle.of(report.mainDocumentType);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -115,27 +108,77 @@ class ReportRow extends StatelessWidget {
             child: Icon(style.icon, color: style.color, size: 22),
           ),
           title: Text(
-            report.ownerNameMasked ?? report.documentType.label,
+            report.ownerNameMasked ?? report.documentsLabel,
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           subtitle: Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text(
-              '${report.locationLabel} · ${report.kind.label}',
-              style: const TextStyle(fontSize: 13, color: AppTheme.inkSoft),
+            padding: const EdgeInsets.only(top: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Les familles de documents du signalement, pour qu'un sac
+                // volé ne se résume pas à sa première pièce
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: report.documents
+                      .map((document) => _DocumentChip(type: document.documentType))
+                      .toList(),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${report.locationLabel} · ${report.kindLabel}',
+                  style: const TextStyle(fontSize: 13, color: AppTheme.inkSoft),
+                ),
+              ],
             ),
           ),
-          trailing: trailing ?? _KindBadge(isFound: report.kind == ReportKind.found),
+          trailing: trailing ??
+              _KindBadge(
+                isFound: report.kind == ReportKind.found,
+                label: report.kindLabel,
+              ),
         ),
       ),
     );
   }
 }
 
+class _DocumentChip extends StatelessWidget {
+  const _DocumentChip({required this.type});
+
+  final DocumentType type;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = DocumentStyle.of(type);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: style.color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(style.icon, size: 12, color: style.color),
+          const SizedBox(width: 4),
+          Text(
+            type.label,
+            style: TextStyle(fontSize: 11, color: style.color, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _KindBadge extends StatelessWidget {
-  const _KindBadge({required this.isFound});
+  const _KindBadge({required this.isFound, required this.label});
 
   final bool isFound;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -148,7 +191,7 @@ class _KindBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
-        isFound ? 'Trouvé' : 'Perdu',
+        label,
         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
       ),
     );

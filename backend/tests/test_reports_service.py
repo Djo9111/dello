@@ -25,10 +25,14 @@ def _user(db, phone="+221771234567") -> User:
 
 
 def _payload(**overrides) -> ReportCreate:
+    document_type = overrides.pop("document_type", "cni")
+    document_number = overrides.pop("document_number", NUMBER)
+
     data = {
         "kind": "lost",
-        "document_type": "cni",
-        "document_number": NUMBER,
+        "documents": [
+            {"document_type": document_type, "document_number": document_number}
+        ],
         "owner_name": "Modienne GUISSE",
         "region": "Dakar",
         "commune": "Keur Massar",
@@ -49,7 +53,7 @@ def test_create_hashes_number_and_masks_name(db_session):
 
     report = service.create_report(db_session, user, _payload())
 
-    assert report.document_number_hmac == hash_document_number("cni", NUMBER)
+    assert report.documents[0].document_number_hmac == hash_document_number("cni", NUMBER)
     assert report.owner_name_masked == "Mod... G..."
     assert report.status is ReportStatus.OPEN
     assert report.is_published is True
@@ -62,7 +66,7 @@ def test_create_without_number_or_name(db_session):
         db_session, user, _payload(document_number=None, owner_name=None)
     )
 
-    assert report.document_number_hmac is None
+    assert report.documents[0].document_number_hmac is None
     assert report.owner_name_masked is None
 
 
@@ -75,7 +79,7 @@ def test_same_number_gives_same_hmac_whatever_the_formatting(db_session):
         db_session, moussa, _payload(kind="found", document_number=NUMBER)
     )
 
-    assert lost.document_number_hmac == found.document_number_hmac
+    assert lost.documents[0].document_number_hmac == found.documents[0].document_number_hmac
 
 
 def test_different_document_types_do_not_collide(db_session):
@@ -84,7 +88,7 @@ def test_different_document_types_do_not_collide(db_session):
     cni = service.create_report(db_session, user, _payload(document_type="cni"))
     permis = service.create_report(db_session, user, _payload(document_type="permis"))
 
-    assert cni.document_number_hmac != permis.document_number_hmac
+    assert cni.documents[0].document_number_hmac != permis.documents[0].document_number_hmac
 
 
 # ---------------------------------------------------------------------------

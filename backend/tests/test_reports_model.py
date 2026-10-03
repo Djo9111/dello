@@ -9,6 +9,8 @@ from app.core.security import hash_document_number, hash_password
 from app.modules.reports.models import (
     DocumentType,
     Report,
+    ReportCircumstance,
+    ReportDocument,
     ReportImage,
     ReportKind,
     ReportStatus,
@@ -31,16 +33,25 @@ def _report(db, user, kind=ReportKind.LOST, number="1234567890123") -> Report:
     report = Report(
         user_id=user.id,
         kind=kind,
-        document_type=DocumentType.CNI,
-        document_number_hmac=hash_document_number("cni", number),
         owner_name_masked="Awa D...",
         region="Dakar",
         commune="Keur Massar",
         occurred_on=date(2026, 9, 20),
+        documents=[
+            ReportDocument(
+                document_type=DocumentType.CNI,
+                document_number_hmac=hash_document_number("cni", number),
+            )
+        ],
     )
     db.add(report)
     db.commit()
     return report
+
+
+# ---------------------------------------------------------------------------
+# Signalement
+# ---------------------------------------------------------------------------
 
 
 def test_defaults(db_session):
@@ -48,21 +59,43 @@ def test_defaults(db_session):
 
     assert report.status == ReportStatus.OPEN
     assert report.is_published is True
-    assert len(report.document_number_hmac) == 64
+    assert report.circumstance is None
+    assert len(report.documents[0].document_number_hmac) == 64
 
 
-def test_report_without_document_number(db_session):
+def test_several_documents_in_one_report(db_session):
+    """Un sac volé contient souvent une carte d'identité et un permis."""
     user = _user(db_session)
     report = Report(
         user_id=user.id,
-        kind=ReportKind.FOUND,
-        document_type=DocumentType.AUTRE,
-        region="Thies",
+        kind=ReportKind.LOST,
+        circumstance=ReportCircumstance.STOLEN,
+        region="Dakar",
+        documents=[
+            ReportDocument(document_type=DocumentType.CNI),
+            ReportDocument(document_type=DocumentType.PERMIS),
+            ReportDocument(document_type=DocumentType.AUTRE),
+        ],
     )
     db_session.add(report)
     db_session.commit()
 
-    assert report.document_number_hmac is None
+    assert len(report.documents) == 3
+    assert report.circumstance is ReportCircumstance.STOLEN
+
+
+def test_document_without_number(db_session):
+    user = _user(db_session)
+    report = Report(
+        user_id=user.id,
+        kind=ReportKind.FOUND,
+        region="Thies",
+        documents=[ReportDocument(document_type=DocumentType.AUTRE)],
+    )
+    db_session.add(report)
+    db_session.commit()
+
+    assert report.documents[0].document_number_hmac is None
 
 
 def test_invalid_hmac_length_is_rejected(db_session):
@@ -70,9 +103,12 @@ def test_invalid_hmac_length_is_rejected(db_session):
     report = Report(
         user_id=user.id,
         kind=ReportKind.LOST,
-        document_type=DocumentType.CNI,
-        document_number_hmac="trop-court",
         region="Dakar",
+        documents=[
+            ReportDocument(
+                document_type=DocumentType.CNI, document_number_hmac="trop-court"
+            )
+        ],
     )
     db_session.add(report)
 
@@ -91,7 +127,6 @@ def test_invalid_kind_is_rejected(db_session):
                 id=uuid.uuid4(),
                 user_id=user.id,
                 kind="peut-etre",
-                document_type="cni",
                 region="Dakar",
                 status="open",
                 is_published=True,
@@ -99,6 +134,51 @@ def test_invalid_kind_is_rejected(db_session):
         )
 
     db_session.rollback()
+
+
+def test_invalid_circumstance_is_rejected(db_session):
+    user = _user(db_session)
+
+    with pytest.raises(IntegrityError):
+        db_session.execute(
+            Report.__table__.insert().values(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                kind="lost",
+                circumstance="egare-peut-etre",
+                region="Dakar",
+                status="open",
+                is_published=True,
+            )
+        )
+
+    db_session.rollback()
+
+
+def test_coordinates_must_come_together(db_session):
+    """Contrainte absente de la base avant la migration multi-documents :
+    Alembic ne détecte pas les CheckConstraint ajoutées après coup."""
+    user = _user(db_session)
+
+    with pytest.raises(IntegrityError):
+        db_session.execute(
+            Report.__table__.insert().values(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                kind="found",
+                region="Dakar",
+                latitude=14.7,
+                status="open",
+                is_published=True,
+            )
+        )
+
+    db_session.rollback()
+
+
+# ---------------------------------------------------------------------------
+# Rapprochement
+# ---------------------------------------------------------------------------
 
 
 def test_matching_by_hmac(db_session):
@@ -110,13 +190,30 @@ def test_matching_by_hmac(db_session):
 
     # La requete du moteur de rapprochement
     candidates = db_session.scalars(
-        select(Report).where(
+        select(Report)
+        .join(ReportDocument)
+        .where(
             Report.kind == ReportKind.FOUND,
-            Report.document_number_hmac == hash_document_number("cni", "1234567890123"),
+            ReportDocument.document_number_hmac
+            == hash_document_number("cni", "1234567890123"),
         )
     ).all()
 
     assert [report.id for report in candidates] == [found.id]
+
+
+# ---------------------------------------------------------------------------
+# Cascades
+# ---------------------------------------------------------------------------
+
+
+def test_documents_are_deleted_with_the_report(db_session):
+    report = _report(db_session, _user(db_session))
+
+    db_session.delete(report)
+    db_session.commit()
+
+    assert db_session.scalars(select(ReportDocument)).all() == []
 
 
 def test_images_are_deleted_with_report(db_session):

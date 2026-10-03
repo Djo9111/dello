@@ -1,7 +1,7 @@
 """Jeu de données de développement pour Dello.
 
-    python -m scripts.seed_dev          # crée les comptes et signalements
-    python -m scripts.seed_dev --reset  # supprime uniquement ce qu'il a créé
+   python -m scripts.seed_dev          # crée les comptes et signalements
+   python -m scripts.seed_dev --reset  # supprime uniquement ce qu'il a créé
 
 Refuse de tourner ailleurs qu'en développement : ces comptes ont tous le
 même mot de passe, ils n'ont rien à faire sur un environnement exposé.
@@ -21,13 +21,15 @@ from app.core.security import hash_document_number, hash_password
 from app.modules.claims.models import Claim
 from app.modules.claims.verification import hash_answer
 from app.modules.reports.masking import mask_owner_name
-from app.modules.reports.models import DocumentType, Report, ReportKind
+from app.modules.reports.models import (
+    DocumentType,
+    Report,
+    ReportCircumstance,
+    ReportDocument,
+    ReportKind,
+)
 from app.modules.users.models import User
 
-# Préfixe réservé au jeu de données : permet de tout retrouver et de tout
-# supprimer sans toucher aux comptes créés à la main pendant les tests.
-# 9 chiffres après +221, comme un vrai mobile sénégalais : ces comptes
-# doivent pouvoir se connecter par l'API comme n'importe quel autre.
 SEED_PREFIX = "+22170000"
 SEED_PASSWORD = "Tamarin-Soleil-9"
 
@@ -74,8 +76,6 @@ def _reset(db: Session) -> None:
         print("Rien à supprimer.")
         return
 
-    # Les signalements de documents trouvés survivent à la suppression d'un
-    # compte (user_id passe à NULL), donc on les efface explicitement.
     db.execute(delete(Claim).where(Claim.claimant_id.in_(user_ids)))
     db.execute(delete(Report).where(Report.user_id.in_(user_ids)))
     for user in users:
@@ -87,7 +87,7 @@ def _reset(db: Session) -> None:
 
 def _create_users(db: Session, count: int) -> list[User]:
     users = []
-    shared_hash = hash_password(SEED_PASSWORD)  # haché une seule fois : Argon2 est lent
+    shared_hash = hash_password(SEED_PASSWORD)
 
     for index in range(count):
         phone = f"{SEED_PREFIX}{index:04d}"
@@ -123,20 +123,43 @@ def _create_reports(db: Session, users: list[User], count: int) -> int:
         owner_name = f"{random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}"
         number = f"{random.randint(1000000000000, 1999999999999)}"
 
+        documents = [
+            ReportDocument(
+                document_type=document_type,
+                document_number_hmac=hash_document_number(document_type.value, number),
+            )
+        ]
+
+        # Un signalement sur trois porte plusieurs documents, comme un sac
+        # qui contenait la carte d'identite et le permis.
+        if random.random() < 0.33:
+            second_type = random.choice(list(DocumentType))
+            documents.append(
+                ReportDocument(
+                    document_type=second_type,
+                    document_number_hmac=hash_document_number(
+                        second_type.value, f"{random.randint(1000000000000, 1999999999999)}"
+                    ),
+                )
+            )
+
         report = Report(
             user_id=user.id,
             kind=kind,
-            document_type=document_type,
-            document_number_hmac=hash_document_number(document_type.value, number),
+            circumstance=(
+                random.choice(list(ReportCircumstance))
+                if kind is ReportKind.LOST
+                else None
+            ),
             owner_name_masked=mask_owner_name(owner_name),
             region=region,
             commune=random.choice(REGIONS[region]),
             place_detail=random.choice(PLACES),
             occurred_on=today - timedelta(days=random.randint(0, 120)),
+            documents=documents,
         )
 
         if kind is ReportKind.FOUND:
-            # Position seulement pour un document trouvé, autour de Dakar
             report.latitude = round(14.70 + random.uniform(-0.12, 0.12), 6)
             report.longitude = round(-17.44 + random.uniform(-0.12, 0.12), 6)
 
@@ -167,21 +190,28 @@ def _create_matching_pair(db: Session, users: list[User]) -> None:
         Report(
             user_id=owner.id,
             kind=ReportKind.LOST,
-            document_type=DocumentType.CNI,
-            document_number_hmac=hash_document_number("cni", number),
+            circumstance=ReportCircumstance.STOLEN,
             owner_name_masked=mask_owner_name("Modienne Guisse"),
             region="Dakar",
             commune="Keur Massar",
             place_detail="pres du marche",
             occurred_on=today - timedelta(days=3),
+            documents=[
+                ReportDocument(
+                    document_type=DocumentType.CNI,
+                    document_number_hmac=hash_document_number("cni", number),
+                ),
+                ReportDocument(
+                    document_type=DocumentType.PERMIS,
+                    document_number_hmac=hash_document_number("permis", "5555555555"),
+                ),
+            ],
         )
     )
     db.add(
         Report(
             user_id=finder.id,
             kind=ReportKind.FOUND,
-            document_type=DocumentType.CNI,
-            document_number_hmac=hash_document_number("cni", number),
             owner_name_masked=mask_owner_name("Modienne Guisse"),
             region="Dakar",
             commune="Pikine",
@@ -191,6 +221,12 @@ def _create_matching_pair(db: Session, users: list[User]) -> None:
             longitude=-17.3924,
             verification_question=question,
             verification_answer_hash=hash_answer(answer),
+            documents=[
+                ReportDocument(
+                    document_type=DocumentType.CNI,
+                    document_number_hmac=hash_document_number("cni", number),
+                )
+            ],
         )
     )
     db.commit()
@@ -207,7 +243,7 @@ def main() -> None:
     args = parser.parse_args()
 
     _require_development()
-    random.seed(42)  # jeu reproductible d'une exécution à l'autre
+    random.seed(42)
 
     with Session(engine) as db:
         if args.reset:

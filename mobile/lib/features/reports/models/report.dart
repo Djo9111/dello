@@ -10,6 +10,21 @@ enum ReportKind {
       ReportKind.values.firstWhere((kind) => kind.value == value);
 }
 
+enum ReportCircumstance {
+  lost('lost', 'Égaré'),
+  stolen('stolen', 'Volé');
+
+  const ReportCircumstance(this.value, this.label);
+  final String value;
+  final String label;
+
+  static ReportCircumstance? fromValue(String? value) {
+    if (value == null) return null;
+    return ReportCircumstance.values
+        .firstWhere((item) => item.value == value, orElse: () => ReportCircumstance.lost);
+  }
+}
+
 enum DocumentType {
   cni('cni', "Carte d'identité"),
   permis('permis', 'Permis de conduire'),
@@ -46,31 +61,69 @@ const senegalRegions = <String>[
   'Thies', 'Ziguinchor',
 ];
 
+/// Un document porté par un signalement. Le numéro n'est jamais renvoyé
+/// par l'API, seule sa présence est connue.
+class ReportDocument {
+  const ReportDocument({
+    required this.id,
+    required this.documentType,
+    required this.hasDocumentNumber,
+  });
+
+  final String id;
+  final DocumentType documentType;
+  final bool hasDocumentNumber;
+
+  factory ReportDocument.fromJson(Map<String, dynamic> json) {
+    return ReportDocument(
+      id: json['id'] as String,
+      documentType: DocumentType.fromValue(json['document_type'] as String),
+      hasDocumentNumber: json['has_document_number'] as bool? ?? false,
+    );
+  }
+}
+
+/// Un document à déclarer, avant envoi. Le numéro part vers l'API puis
+/// n'est plus conservé par l'application.
+class DocumentDraft {
+  DocumentDraft({required this.documentType, this.documentNumber = ''});
+
+  DocumentType documentType;
+  String documentNumber;
+
+  Map<String, dynamic> toJson() => {
+        'document_type': documentType.value,
+        if (documentNumber.trim().isNotEmpty)
+          'document_number': documentNumber.trim(),
+      };
+}
+
 class Report {
   const Report({
     required this.id,
     required this.kind,
-    required this.documentType,
+    required this.documents,
     required this.region,
     required this.status,
     required this.createdAt,
+    this.circumstance,
     this.ownerNameMasked,
     this.commune,
     this.occurredOn,
     this.verificationQuestion,
     this.placeDetail,
     this.isPublished,
-    this.hasDocumentNumber,
     this.latitude,
     this.longitude,
   });
 
   final String id;
   final ReportKind kind;
-  final DocumentType documentType;
+  final List<ReportDocument> documents;
   final String region;
   final ReportStatus status;
   final DateTime createdAt;
+  final ReportCircumstance? circumstance;
   final String? ownerNameMasked;
   final String? commune;
   final DateTime? occurredOn;
@@ -81,12 +134,28 @@ class Report {
   /// Champs présents uniquement dans la vue du propriétaire
   final String? placeDetail;
   final bool? isPublished;
-  final bool? hasDocumentNumber;
   final double? latitude;
   final double? longitude;
 
   bool get hasVerificationQuestion =>
       verificationQuestion != null && verificationQuestion!.isNotEmpty;
+
+  bool get hasAnyDocumentNumber =>
+      documents.any((document) => document.hasDocumentNumber);
+
+  DocumentType get mainDocumentType =>
+      documents.isEmpty ? DocumentType.autre : documents.first.documentType;
+
+  /// "Carte d'identité" ou "Carte d'identité +2" selon le nombre de pièces
+  String get documentsLabel {
+    if (documents.isEmpty) return 'Document';
+    if (documents.length == 1) return documents.first.documentType.label;
+    return '${documents.first.documentType.label} +${documents.length - 1}';
+  }
+
+  /// Libellé du sens, enrichi de la circonstance quand elle est connue
+  String get kindLabel =>
+      circumstance == null ? kind.label : circumstance!.label;
 
   String get locationLabel =>
       commune == null || commune!.isEmpty ? region : '$commune, $region';
@@ -95,10 +164,13 @@ class Report {
     return Report(
       id: json['id'] as String,
       kind: ReportKind.fromValue(json['kind'] as String),
-      documentType: DocumentType.fromValue(json['document_type'] as String),
+      documents: ((json['documents'] as List<dynamic>?) ?? [])
+          .map((item) => ReportDocument.fromJson(item as Map<String, dynamic>))
+          .toList(),
       region: json['region'] as String,
       status: ReportStatus.fromValue(json['status'] as String),
       createdAt: DateTime.parse(json['created_at'] as String),
+      circumstance: ReportCircumstance.fromValue(json['circumstance'] as String?),
       ownerNameMasked: json['owner_name_masked'] as String?,
       commune: json['commune'] as String?,
       occurredOn: json['occurred_on'] == null
@@ -107,7 +179,6 @@ class Report {
       verificationQuestion: json['verification_question'] as String?,
       placeDetail: json['place_detail'] as String?,
       isPublished: json['is_published'] as bool?,
-      hasDocumentNumber: json['has_document_number'] as bool?,
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
     );

@@ -1,13 +1,19 @@
 import uuid
 
 from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.security import hash_document_number
 from app.modules.claims.verification import hash_answer
 from app.modules.reports.exceptions import ReportNotFoundError
 from app.modules.reports.masking import mask_owner_name
-from app.modules.reports.models import DocumentType, Report, ReportKind, ReportStatus
+from app.modules.reports.models import (
+    DocumentType,
+    Report,
+    ReportDocument,
+    ReportKind,
+    ReportStatus,
+)
 from app.modules.reports.schemas import ReportCreate, ReportUpdate
 from app.modules.users.models import User
 
@@ -21,20 +27,24 @@ MIN_DOCUMENT_NUMBER_SEARCH = 5
 PUBLIC_STATUSES = (ReportStatus.OPEN, ReportStatus.MATCHED)
 
 
-def create_report(db: Session, user: User, data: ReportCreate) -> Report:
-    """Le numéro devient une empreinte HMAC, le nom est masqué.
-    Ni l'un ni l'autre n'est stocké en clair."""
-    document_hmac = None
-    if data.document_number is not None:
-        document_hmac = hash_document_number(
-            data.document_type.value, data.document_number.get_secret_value()
-        )
+def _with_documents(query):
+    """Charge les documents en une requête : sans cela, une liste de 20
+    signalements en déclencherait 21."""
+    return query.options(selectinload(Report.documents))
 
+
+# ---------------------------------------------------------------------------
+# Création
+# ---------------------------------------------------------------------------
+
+
+def create_report(db: Session, user: User, data: ReportCreate) -> Report:
+    """Les numéros deviennent des empreintes HMAC, le nom est masqué.
+    Ni les uns ni l'autre ne sont stockés en clair."""
     report = Report(
         user_id=user.id,
         kind=data.kind,
-        document_type=data.document_type,
-        document_number_hmac=document_hmac,
+        circumstance=data.circumstance,
         owner_name_masked=mask_owner_name(data.owner_name) if data.owner_name else None,
         region=data.region,
         commune=data.commune,
@@ -50,16 +60,36 @@ def create_report(db: Session, user: User, data: ReportCreate) -> Report:
         ),
     )
 
+    for document in data.documents:
+        report.documents.append(
+            ReportDocument(
+                document_type=document.document_type,
+                document_number_hmac=(
+                    hash_document_number(
+                        document.document_type.value,
+                        document.document_number.get_secret_value(),
+                    )
+                    if document.document_number is not None
+                    else None
+                ),
+            )
+        )
+
     db.add(report)
     db.commit()
     db.refresh(report)
     return report
 
 
+# ---------------------------------------------------------------------------
+# Lecture
+# ---------------------------------------------------------------------------
+
+
 def get_own_report(db: Session, report_id: uuid.UUID, user: User) -> Report:
     """Signalement de l'utilisateur. Erreur identique s'il n'existe pas
     ou s'il appartient à quelqu'un d'autre."""
-    report = db.get(Report, report_id)
+    report = db.scalar(_with_documents(select(Report).where(Report.id == report_id)))
 
     if report is None or report.user_id is None or report.user_id != user.id:
         raise ReportNotFoundError()
@@ -68,7 +98,7 @@ def get_own_report(db: Session, report_id: uuid.UUID, user: User) -> Report:
 
 
 def get_public_report(db: Session, report_id: uuid.UUID) -> Report:
-    report = db.get(Report, report_id)
+    report = db.scalar(_with_documents(select(Report).where(Report.id == report_id)))
 
     if report is None or not report.is_published or report.status not in PUBLIC_STATUSES:
         raise ReportNotFoundError()
@@ -106,7 +136,13 @@ def _search_filter(text: str):
             hash_document_number(document_type.value, compact)
             for document_type in DocumentType
         ]
-        clauses.append(Report.document_number_hmac.in_(hmacs))
+        clauses.append(
+            Report.id.in_(
+                select(ReportDocument.report_id).where(
+                    ReportDocument.document_number_hmac.in_(hmacs)
+                )
+            )
+        )
 
     pattern = f"%{_escape_like(text)}%"
     clauses.extend(
@@ -129,7 +165,7 @@ def list_public_reports(
     db: Session,
     *,
     kind: ReportKind | None = None,
-    document_type=None,
+    document_type: DocumentType | None = None,
     region: str | None = None,
     search: str | None = None,
     limit: int = DEFAULT_PAGE_SIZE,
@@ -142,8 +178,17 @@ def list_public_reports(
 
     if kind is not None:
         query = query.where(Report.kind == kind)
+
     if document_type is not None:
-        query = query.where(Report.document_type == document_type)
+        # Un signalement apparaît dans chaque famille qu'il contient
+        query = query.where(
+            Report.id.in_(
+                select(ReportDocument.report_id).where(
+                    ReportDocument.document_type == document_type
+                )
+            )
+        )
+
     if region is not None:
         query = query.where(Report.region == region)
 
@@ -158,10 +203,12 @@ def list_public_reports(
         .offset(max(offset, 0))
     )
 
-    return list(db.scalars(query))
+    return list(db.scalars(_with_documents(query)))
 
 
-def list_own_reports(db: Session, user: User, *, limit: int = DEFAULT_PAGE_SIZE, offset: int = 0) -> list[Report]:
+def list_own_reports(
+    db: Session, user: User, *, limit: int = DEFAULT_PAGE_SIZE, offset: int = 0
+) -> list[Report]:
     query = (
         select(Report)
         .where(Report.user_id == user.id)
@@ -169,7 +216,7 @@ def list_own_reports(db: Session, user: User, *, limit: int = DEFAULT_PAGE_SIZE,
         .limit(min(limit, MAX_PAGE_SIZE))
         .offset(max(offset, 0))
     )
-    return list(db.scalars(query))
+    return list(db.scalars(_with_documents(query)))
 
 
 # ---------------------------------------------------------------------------
@@ -199,12 +246,18 @@ def delete_report(db: Session, report: Report) -> None:
 
 
 def find_potential_matches(db: Session, report: Report) -> list[Report]:
-    """Signalements du sens opposé portant la même empreinte de numéro.
+    """Signalements du sens opposé portant au moins un document de même
+    empreinte.
 
     Rapprochement déterministe : un numéro de pièce identifie un document
     de manière unique, donc aucun score de similarité n'est nécessaire.
     """
-    if report.document_number_hmac is None:
+    hmacs = [
+        document.document_number_hmac
+        for document in report.documents
+        if document.document_number_hmac is not None
+    ]
+    if not hmacs:
         return []
 
     opposite = ReportKind.FOUND if report.kind is ReportKind.LOST else ReportKind.LOST
@@ -213,11 +266,15 @@ def find_potential_matches(db: Session, report: Report) -> list[Report]:
         select(Report)
         .where(
             Report.kind == opposite,
-            Report.document_number_hmac == report.document_number_hmac,
             Report.status != ReportStatus.CLOSED,
             Report.id != report.id,
+            Report.id.in_(
+                select(ReportDocument.report_id).where(
+                    ReportDocument.document_number_hmac.in_(hmacs)
+                )
+            ),
         )
         .order_by(Report.created_at.desc())
     )
 
-    return list(db.scalars(query))
+    return list(db.scalars(_with_documents(query)))

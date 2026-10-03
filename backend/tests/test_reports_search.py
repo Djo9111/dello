@@ -23,10 +23,14 @@ def _user(db, phone="+221771234567") -> User:
 
 
 def _create(db, user, **overrides):
+    document_type = overrides.pop("document_type", "cni")
+    document_number = overrides.pop("document_number", NUMBER)
+
     data = {
         "kind": "found",
-        "document_type": "cni",
-        "document_number": NUMBER,
+        "documents": [
+            {"document_type": document_type, "document_number": document_number}
+        ],
         "owner_name": "Modienne GUISSE",
         "region": "Dakar",
         "commune": "Keur Massar",

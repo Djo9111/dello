@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/theme/app_theme.dart';
 import '../data/reports_repository.dart';
 import '../models/report.dart';
 import '../widgets/report_tile.dart';
@@ -20,6 +22,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
   Report? _report;
   List<Report> _matches = [];
   bool _isLoading = true;
+  bool _isSharing = false;
   bool _hasChanged = false;
   String? _error;
 
@@ -34,7 +37,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
 
     try {
       final report = await _repository.getMine(widget.reportId);
-      final matches = report.hasDocumentNumber == true
+      final matches = report.hasAnyDocumentNumber
           ? await _repository.matches(widget.reportId)
           : <Report>[];
 
@@ -52,6 +55,27 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
     }
   }
 
+  /// Le texte vient du serveur : l'application ne le compose pas, donc
+  /// elle ne peut pas y ajouter un numéro de téléphone par erreur.
+  Future<void> _share() async {
+    if (_isSharing) return;
+    setState(() => _isSharing = true);
+
+    try {
+      final content = await _repository.shareContent(widget.reportId);
+      await SharePlus.instance.share(
+        ShareParams(text: content.text, subject: 'Signalement Dello'),
+      );
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _isSharing = false);
+    }
+  }
+
   Future<void> _togglePublication(bool value) async {
     try {
       final updated = await _repository.update(widget.reportId, isPublished: value);
@@ -61,6 +85,42 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           _hasChanged = true;
         });
       }
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+  }
+
+  Future<void> _confirmClose() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Document restitué ?'),
+        content: const Text(
+          'Le signalement sortira de la liste et les demandes en attente '
+          'seront refusées.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Confirmer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _repository.close(widget.reportId);
+      _hasChanged = true;
+      await _load();
     } on ApiException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -113,6 +173,17 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           title: const Text('Ma déclaration'),
           actions: [
             IconButton(
+              tooltip: 'Partager',
+              icon: _isSharing
+                  ? const SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.share_outlined),
+              onPressed: _isLoading ? null : _share,
+            ),
+            IconButton(
               tooltip: 'Supprimer',
               icon: const Icon(Icons.delete_outline),
               onPressed: _isLoading ? null : _confirmDelete,
@@ -129,42 +200,58 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
     if (_error != null) return Center(child: Text(_error!));
 
     final report = _report!;
+    final isClosed = report.status == ReportStatus.closed;
 
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
         Text(
-          report.documentType.label,
+          report.documentsLabel,
           style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 4),
-        Text('${report.kind.label} · ${report.status.label}'),
+        Text('${report.kindLabel} · ${report.status.label}'),
+        const SizedBox(height: 20),
+        _ShareBanner(onShare: _isSharing ? null : _share),
         const SizedBox(height: 20),
         _InfoRow(label: 'Nom masqué', value: report.ownerNameMasked ?? 'Non renseigné'),
         _InfoRow(label: 'Lieu', value: report.locationLabel),
         _InfoRow(label: 'Lieu précis', value: report.placeDetail ?? 'Non renseigné'),
-        _InfoRow(
-          label: 'Numéro enregistré',
-          value: report.hasDocumentNumber == true ? 'Oui' : 'Non',
+        const SizedBox(height: 8),
+        const Text(
+          'Documents déclarés',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        ...report.documents.map(
+          (document) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                Expanded(child: Text(document.documentType.label)),
+                Text(
+                  document.hasDocumentNumber ? 'Numéro enregistré' : 'Sans numéro',
+                  style: const TextStyle(fontSize: 12, color: AppTheme.inkSoft),
+                ),
+              ],
+            ),
+          ),
         ),
         const Divider(height: 32),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('Visible par les autres utilisateurs'),
           value: report.isPublished ?? true,
-          onChanged: _togglePublication,
+          onChanged: isClosed ? null : _togglePublication,
         ),
         const Divider(height: 32),
-        Text(
-          'Correspondances',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text('Correspondances', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 4),
         Text(
-          report.hasDocumentNumber == true
-              ? 'Signalements portant le même numéro de document.'
-              : 'Ajoutez le numéro du document pour activer le rapprochement automatique.',
-          style: const TextStyle(color: Colors.black54, fontSize: 13),
+          report.hasAnyDocumentNumber
+              ? 'Signalements portant au moins un document en commun.'
+              : 'Ajoutez le numéro d\'un document pour activer le rapprochement automatique.',
+          style: const TextStyle(color: AppTheme.inkSoft, fontSize: 13),
         ),
         const SizedBox(height: 12),
         if (_matches.isEmpty)
@@ -173,8 +260,65 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
             child: Text('Aucune correspondance pour le moment.'),
           )
         else
-                ..._matches.map((match) => ReportRow(report: match)),
+          ..._matches.map((match) => ReportRow(report: match)),
+        const Divider(height: 32),
+        if (!isClosed)
+          OutlinedButton.icon(
+            onPressed: _confirmClose,
+            icon: const Icon(Icons.check_circle_outline),
+            label: const Text('Document restitué'),
+          ),
       ],
+    );
+  }
+}
+
+class _ShareBanner extends StatelessWidget {
+  const _ShareBanner({this.onShare});
+
+  final VoidCallback? onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.accentSoft,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.campaign_outlined, color: AppTheme.accent),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Faites circuler sans donner votre numéro',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Le lien partagé affiche les informations masquées. '
+            'Celui qui a votre document passe par Dello pour vous joindre.',
+            style: TextStyle(fontSize: 13, color: AppTheme.inkSoft),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: onShare,
+            icon: const Icon(Icons.share_outlined, size: 18),
+            label: const Text('Partager'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.accent,
+              minimumSize: const Size.fromHeight(46),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -194,7 +338,7 @@ class _InfoRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 140,
-            child: Text(label, style: const TextStyle(color: Colors.black54)),
+            child: Text(label, style: const TextStyle(color: AppTheme.inkSoft)),
           ),
           Expanded(child: Text(value)),
         ],

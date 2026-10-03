@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     OTP_MAX_PER_HOUR: int = Field(default=3, ge=1, le=10)
     SMS_PROVIDER: Literal["console"] = "console"
     PUSH_PROVIDER: Literal["console"] = "console"
+    # Adresse publique utilisée dans les liens de partage
+    PUBLIC_BASE_URL: str = "http://localhost:8000"
+    PLAY_STORE_URL: str = "https://play.google.com/store/apps/details?id=sn.dello.app"
 
     @model_validator(mode="after")
     def check_security(self) -> "Settings":

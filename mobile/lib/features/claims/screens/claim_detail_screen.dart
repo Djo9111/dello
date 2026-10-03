@@ -97,11 +97,11 @@ class _ClaimDetailScreenState extends State<ClaimDetailScreen> {
         body: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            Text(
-              report.documentType.label,
+                        Text(
+              report.documentsLabel,
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-            Text('${report.kind.label} · ${report.locationLabel}'),
+            Text('${report.kindLabel} · ${report.locationLabel}'),
             const SizedBox(height: 8),
             Chip(label: Text(_claim.status.label)),
             if (_claim.message != null) ...[

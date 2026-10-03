@@ -101,7 +101,12 @@ def test_phone_can_be_reused_after_deletion(client, db_session):
 def test_deleting_account_keeps_found_reports_anonymized(client, db_session):
     from datetime import date
 
-    from app.modules.reports.models import DocumentType, Report, ReportKind
+    from app.modules.reports.models import (
+        DocumentType,
+        Report,
+        ReportDocument,
+        ReportKind,
+    )
 
     _register(client)
     tokens = _login(client)
@@ -111,15 +116,15 @@ def test_deleting_account_keeps_found_reports_anonymized(client, db_session):
         Report(
             user_id=user.id,
             kind=ReportKind.FOUND,
-            document_type=DocumentType.CNI,
             region="Dakar",
             occurred_on=date(2026, 9, 20),
+            documents=[ReportDocument(document_type=DocumentType.CNI)],
         ),
         Report(
             user_id=user.id,
             kind=ReportKind.LOST,
-            document_type=DocumentType.PERMIS,
             region="Dakar",
+            documents=[ReportDocument(document_type=DocumentType.PERMIS)],
         ),
     ])
     db_session.commit()
@@ -133,7 +138,12 @@ def test_deleting_account_keeps_found_reports_anonymized(client, db_session):
 
 
 def test_deleting_account_removes_lost_reports(client, db_session):
-    from app.modules.reports.models import DocumentType, Report, ReportKind
+    from app.modules.reports.models import (
+        DocumentType,
+        Report,
+        ReportDocument,
+        ReportKind,
+    )
 
     _register(client)
     tokens = _login(client)
@@ -143,8 +153,8 @@ def test_deleting_account_removes_lost_reports(client, db_session):
         Report(
             user_id=user.id,
             kind=ReportKind.LOST,
-            document_type=DocumentType.CNI,
             region="Dakar",
+            documents=[ReportDocument(document_type=DocumentType.CNI)],
         )
     )
     db_session.commit()

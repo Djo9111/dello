@@ -14,7 +14,6 @@ from sqlalchemy import (
     String,
     text,
 )
-
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,6 +23,18 @@ from app.shared.base_model import Base, TimestampMixin, UUIDPrimaryKeyMixin
 class ReportKind(str, enum.Enum):
     LOST = "lost"
     FOUND = "found"
+
+
+class ReportCircumstance(str, enum.Enum):
+    """Comment le document a quitté son propriétaire.
+
+    Un vol et une perte n'appellent pas les mêmes démarches (plainte,
+    opposition), et un document volé réapparaît souvent loin du lieu
+    de l'incident.
+    """
+
+    LOST = "lost"
+    STOLEN = "stolen"
 
 
 class DocumentType(str, enum.Enum):
@@ -55,6 +66,9 @@ def _pg_enum(enum_class, name: str) -> Enum:
 
 
 class Report(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Un incident : une perte ou une trouvaille, à un lieu et une date,
+    portant un ou plusieurs documents."""
+
     __tablename__ = "reports"
 
     # ON DELETE SET NULL : un document trouve survit a la suppression
@@ -66,13 +80,11 @@ class Report(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     kind: Mapped[ReportKind] = mapped_column(_pg_enum(ReportKind, "report_kind"))
-    document_type: Mapped[DocumentType] = mapped_column(
-        _pg_enum(DocumentType, "document_type")
-    )
 
-    # Empreinte HMAC du numero, jamais le numero lui-meme.
-    # Nullable : une piece trouvee peut etre illisible ou non saisie.
-    document_number_hmac: Mapped[str | None] = mapped_column(String(64))
+    # Perte ou vol, renseigné pour un document perdu
+    circumstance: Mapped[ReportCircumstance | None] = mapped_column(
+        _pg_enum(ReportCircumstance, "report_circumstance")
+    )
 
     # Nom figé masque des la creation (Mod... G...), jamais recalcule a l'affichage
     owner_name_masked: Mapped[str | None] = mapped_column(String(100))
@@ -83,6 +95,7 @@ class Report(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # Date de la perte ou de la trouvaille, distincte de created_at
     occurred_on: Mapped[date | None] = mapped_column(Date)
+
     # Position GPS, renseignée seulement pour un document trouvé (le déclarant
     # est sur place). Jamais exposée publiquement.
     latitude: Mapped[float | None] = mapped_column(Float)
@@ -102,6 +115,13 @@ class Report(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Boolean, default=True, server_default=text("true")
     )
 
+    documents: Mapped[list["ReportDocument"]] = relationship(
+        back_populates="report",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ReportDocument.created_at",
+    )
+
     images: Mapped[list["ReportImage"]] = relationship(
         back_populates="report",
         cascade="all, delete-orphan",
@@ -110,25 +130,61 @@ class Report(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __table_args__ = (
         CheckConstraint(
-            "document_number_hmac IS NULL OR char_length(document_number_hmac) = 64",
-            name="hmac_length",
+            "latitude IS NULL OR (latitude BETWEEN -90 AND 90)", name="latitude_range"
         ),
-        CheckConstraint("latitude IS NULL OR (latitude BETWEEN -90 AND 90)", name="latitude_range"),
-        CheckConstraint("longitude IS NULL OR (longitude BETWEEN -180 AND 180)", name="longitude_range"),
-        CheckConstraint("(latitude IS NULL) = (longitude IS NULL)", name="coordinates_together"),
-        # Requete exacte du moteur de rapprochement
-        Index(
-            "ix_reports_matching",
-            "kind",
-            "document_number_hmac",
-            postgresql_where=text("document_number_hmac IS NOT NULL"),
+        CheckConstraint(
+            "longitude IS NULL OR (longitude BETWEEN -180 AND 180)",
+            name="longitude_range",
+        ),
+        CheckConstraint(
+            "(latitude IS NULL) = (longitude IS NULL)", name="coordinates_together"
         ),
         # Requete exacte de la liste publique
-        Index("ix_reports_public_list", "is_published", "status", "document_type"),
+        Index("ix_reports_public_list", "is_published", "status", "kind"),
     )
 
     def __repr__(self) -> str:
         return f"<Report id={self.id} kind={self.kind}>"
+
+
+class ReportDocument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Un document porté par un signalement.
+
+    Un sac volé contient souvent une carte d'identité, un permis et
+    d'autres papiers : c'est un seul incident, plusieurs documents.
+    """
+
+    __tablename__ = "report_documents"
+
+    report_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("reports.id", ondelete="CASCADE"), index=True
+    )
+    document_type: Mapped[DocumentType] = mapped_column(
+        _pg_enum(DocumentType, "document_type")
+    )
+
+    # Empreinte HMAC du numero, jamais le numero lui-meme.
+    # Nullable : une piece trouvee peut etre illisible ou non saisie.
+    document_number_hmac: Mapped[str | None] = mapped_column(String(64))
+
+    report: Mapped[Report] = relationship(back_populates="documents")
+
+    __table_args__ = (
+        CheckConstraint(
+            "document_number_hmac IS NULL OR char_length(document_number_hmac) = 64",
+            name="hmac_length",
+        ),
+        # Requête exacte du moteur de rapprochement
+        Index(
+            "ix_report_documents_matching",
+            "document_number_hmac",
+            postgresql_where=text("document_number_hmac IS NOT NULL"),
+        ),
+        Index("ix_report_documents_type", "document_type"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ReportDocument id={self.id} type={self.document_type}>"
 
 
 class ReportImage(UUIDPrimaryKeyMixin, TimestampMixin, Base):

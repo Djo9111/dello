@@ -22,8 +22,7 @@ def _owner(client):
 def _declare(client, headers, kind="found", number=NUMBER, with_question=False):
     payload = {
         "kind": kind,
-        "document_type": "cni",
-        "document_number": number,
+        "documents": [{"document_type": "cni", "document_number": number}],
         "owner_name": "Modienne GUISSE",
         "region": "Dakar",
         "commune": "Keur Massar",

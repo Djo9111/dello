@@ -16,10 +16,14 @@ def _account(client, phone="77 123 45 67", name="Awa Diop") -> dict:
 
 
 def _payload(**overrides) -> dict:
+    document_type = overrides.pop("document_type", "cni")
+    document_number = overrides.pop("document_number", NUMBER)
+
     data = {
         "kind": "lost",
-        "document_type": "cni",
-        "document_number": NUMBER,
+        "documents": [
+            {"document_type": document_type, "document_number": document_number}
+        ],
         "owner_name": "Modienne GUISSE",
         "region": "Dakar",
         "commune": "Keur Massar",
@@ -51,7 +55,7 @@ def test_create_returns_masked_report_without_the_number(client):
     assert response.status_code == 201
     body = response.json()
     assert body["owner_name_masked"] == "Mod... G..."
-    assert body["has_document_number"] is True
+    assert body["documents"][0]["has_document_number"] is True
     assert NUMBER not in response.text
     assert "document_number_hmac" not in body
 
@@ -86,7 +90,7 @@ def test_public_detail_hides_precise_location(client):
     body = client.get(f"{API}/reports/{report_id}", headers=headers).json()
 
     assert "place_detail" not in body
-    assert "has_document_number" not in body
+    assert "latitude" not in body
     assert body["region"] == "Dakar"
 
 
@@ -182,7 +186,9 @@ def test_update_rejects_protected_fields(client):
     report_id = _create(client, headers).json()["id"]
 
     response = client.patch(
-        f"{API}/reports/{report_id}", json={"document_type": "permis"}, headers=headers
+        f"{API}/reports/{report_id}",
+        json={"documents": [{"document_type": "permis"}]},
+        headers=headers,
     )
 
     assert response.status_code == 422

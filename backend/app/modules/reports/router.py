@@ -1,22 +1,25 @@
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
-from app.modules.notifications import dispatch
 
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.modules.auth.dependencies import CurrentUser, DbSession
-from app.modules.reports import service
-from app.modules.reports.models import DocumentType, ReportKind
 from app.modules.claims import service as claims_service
 from app.modules.claims.schemas import ClaimCreate, ClaimRead
+from app.modules.notifications import dispatch
+from app.modules.reports import service
+from app.modules.reports.models import DocumentType, ReportKind
 from app.modules.reports.schemas import (
     SENEGAL_REGIONS,
     ReportCreate,
     ReportPublic,
     ReportRead,
+    ReportShare,
     ReportUpdate,
 )
+
+from app.modules.reports import service, share
 
 router = APIRouter(prefix="/reports", tags=["Signalements"])
 
@@ -54,11 +57,24 @@ def read_my_report(report_id: uuid.UUID, current_user: CurrentUser, db: DbSessio
     return ReportRead.from_report(service.get_own_report(db, report_id, current_user))
 
 
+@router.get("/me/{report_id}/share", response_model=ReportShare)
+def share_report(report_id: uuid.UUID, current_user: CurrentUser, db: DbSession):
+    """Texte et lien à partager, sans aucune coordonnée.
+
+    C'est la différence avec une publication sur un réseau social, où le
+    numéro de téléphone finit exposé à tout le monde.
+    """
+    report = service.get_own_report(db, report_id, current_user)
+    return ReportShare(url=share.share_url(report.id), text=share.share_text(report))
+
 @router.get("/me/{report_id}/matches", response_model=list[ReportPublic])
 def list_matches(report_id: uuid.UUID, current_user: CurrentUser, db: DbSession):
-    """Signalements du sens opposé portant le même numéro de document."""
+    """Signalements du sens opposé portant au moins un document commun."""
     report = service.get_own_report(db, report_id, current_user)
-    return service.find_potential_matches(db, report)
+    return [
+        ReportPublic.from_report(match)
+        for match in service.find_potential_matches(db, report)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +97,7 @@ def list_reports(
     limit: int = Query(20, ge=1, le=50),
     offset: int = Query(0, ge=0),
 ):
-    return service.list_public_reports(
+    reports = service.list_public_reports(
         db,
         kind=kind,
         document_type=document_type,
@@ -90,11 +106,12 @@ def list_reports(
         limit=limit,
         offset=offset,
     )
+    return [ReportPublic.from_report(report) for report in reports]
 
 
 @router.get("/{report_id}", response_model=ReportPublic)
 def read_report(report_id: uuid.UUID, current_user: CurrentUser, db: DbSession):
-    return service.get_public_report(db, report_id)
+    return ReportPublic.from_report(service.get_public_report(db, report_id))
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +135,7 @@ def create_report(
     background.add_task(dispatch.on_report_created, report.id)
 
     return ReportRead.from_report(report)
+
 
 @router.post(
     "/{report_id}/claims",
@@ -150,7 +168,7 @@ def claim_report(
 
     background.add_task(dispatch.on_claim_created, claim.id)
 
-    return claim
+    return ClaimRead.from_claim(claim)
 
 
 @router.post("/{report_id}/close", response_model=ReportRead)
@@ -159,6 +177,7 @@ def close_report(report_id: uuid.UUID, current_user: CurrentUser, db: DbSession)
     encore en attente sont refusées."""
     report = service.get_own_report(db, report_id, current_user)
     return ReportRead.from_report(claims_service.close_report(db, report))
+
 
 @router.patch("/{report_id}", response_model=ReportRead)
 def update_report(

@@ -33,6 +33,19 @@ class ReportsRepository {
   Future<List<Report>> matches(String reportId) =>
       _list('/reports/me/$reportId/matches', const {});
 
+    /// Texte et lien à partager. Construits par le serveur pour que
+  /// l'application n'ait aucune chance d'y glisser un numéro.
+  Future<({String url, String text})> shareContent(String reportId) async {
+    try {
+      final response =
+          await _dio.get<Map<String, dynamic>>('/reports/me/$reportId/share');
+      final data = response.data!;
+      return (url: data['url'] as String, text: data['text'] as String);
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    }
+  }
+  
   Future<Report> getMine(String reportId) async {
     try {
       final response =
@@ -45,11 +58,12 @@ class ReportsRepository {
 
   /// Le numéro part vers l'API puis n'est plus conservé par l'application.
    /// Le numéro part vers l'API puis n'est plus conservé par l'application.
+    /// Les numéros partent vers l'API puis ne sont plus conservés.
   Future<Report> create({
     required ReportKind kind,
-    required DocumentType documentType,
+    required List<DocumentDraft> documents,
     required String region,
-    String? documentNumber,
+    ReportCircumstance? circumstance,
     String? ownerName,
     String? commune,
     String? placeDetail,
@@ -64,10 +78,9 @@ class ReportsRepository {
         '/reports',
         data: {
           'kind': kind.value,
-          'document_type': documentType.value,
+          'documents': documents.map((document) => document.toJson()).toList(),
           'region': region,
-          if (documentNumber != null && documentNumber.isNotEmpty)
-            'document_number': documentNumber,
+          'circumstance': ?circumstance?.value,
           if (ownerName != null && ownerName.isNotEmpty) 'owner_name': ownerName,
           if (commune != null && commune.isNotEmpty) 'commune': commune,
           if (placeDetail != null && placeDetail.isNotEmpty)
@@ -103,6 +116,18 @@ class ReportsRepository {
           'is_published': ?isPublished,
         },
       );
+      return Report.fromJson(response.data!);
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    }
+  }
+
+    /// Document restitué : sort le signalement des listes et refuse les
+  /// demandes encore en attente.
+  Future<Report> close(String reportId) async {
+    try {
+      final response =
+          await _dio.post<Map<String, dynamic>>('/reports/$reportId/close');
       return Report.fromJson(response.data!);
     } on DioException catch (error) {
       throw ApiException.from(error);

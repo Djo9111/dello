@@ -9,10 +9,14 @@ from app.modules.reports.schemas import ReportCreate, ReportUpdate
 
 
 def _create(**overrides) -> ReportCreate:
+    document_type = overrides.pop("document_type", "cni")
+    document_number = overrides.pop("document_number", "1234567890123")
+
     data = {
         "kind": "lost",
-        "document_type": "cni",
-        "document_number": "1234567890123",
+        "documents": [
+            {"document_type": document_type, "document_number": document_number}
+        ],
         "owner_name": "Modienne GUISSE",
         "region": "Dakar",
         "commune": "Keur Massar",
@@ -54,7 +58,7 @@ def test_valid_report_is_normalized():
     report = _create(region="  dakar ", commune="  Keur   Massar  ", place_detail="  pres du marche  ")
 
     assert report.kind is ReportKind.LOST
-    assert report.document_type is DocumentType.CNI
+    assert report.documents[0].document_type is DocumentType.CNI
     assert report.region == "Dakar"
     assert report.commune == "Keur Massar"
     assert report.place_detail == "pres du marche"
@@ -64,17 +68,17 @@ def test_document_number_is_never_exposed_in_repr():
     report = _create(document_number="1234567890123")
 
     assert "1234567890123" not in repr(report)
-    assert report.document_number.get_secret_value() == "1234567890123"
+    assert report.documents[0].document_number.get_secret_value() == "1234567890123"
 
 
 def test_document_number_is_optional():
     report = _create(document_number=None)
 
-    assert report.document_number is None
+    assert report.documents[0].document_number is None
 
 
 def test_blank_document_number_becomes_none():
-    assert _create(document_number="   ").document_number is None
+    assert _create(document_number="   ").documents[0].document_number is None
 
 
 @pytest.mark.parametrize("number", ["12", "A" * 31])
@@ -86,7 +90,7 @@ def test_invalid_document_number_length_is_rejected(number):
 def test_formatted_document_number_is_accepted():
     report = _create(document_number="1 234-567.890 12")
 
-    assert report.document_number.get_secret_value() == "1 234-567.890 12"
+    assert report.documents[0].document_number.get_secret_value() == "1 234-567.890 12"
 
 
 def test_unknown_region_is_rejected():
@@ -142,7 +146,52 @@ def test_update_accepts_only_editable_fields():
     assert update.is_published is False
 
 
-@pytest.mark.parametrize("field", ["document_type", "kind", "status", "document_number"])
+@pytest.mark.parametrize("field", ["documents", "kind", "status", "circumstance"])
 def test_update_rejects_identity_fields(field):
     with pytest.raises(ValidationError):
         ReportUpdate(**{field: "cni"})
+
+
+# ---------------------------------------------------------------------------
+# Plusieurs documents et circonstance
+# ---------------------------------------------------------------------------
+
+
+def test_several_documents_in_one_report():
+    """Un sac volé contient souvent plusieurs papiers."""
+    report = ReportCreate(
+        kind="lost",
+        circumstance="stolen",
+        documents=[
+            {"document_type": "cni", "document_number": "1234567890123"},
+            {"document_type": "permis", "document_number": "9876543210987"},
+            {"document_type": "autre"},
+        ],
+        region="Dakar",
+    )
+
+    assert len(report.documents) == 3
+    assert report.documents[2].document_number is None
+
+
+def test_at_least_one_document_is_required():
+    with pytest.raises(ValidationError):
+        ReportCreate(kind="lost", documents=[], region="Dakar")
+
+
+def test_too_many_documents_are_rejected():
+    with pytest.raises(ValidationError):
+        ReportCreate(
+            kind="lost",
+            documents=[{"document_type": "autre"}] * 11,
+            region="Dakar",
+        )
+
+
+def test_circumstance_only_applies_to_a_loss():
+    with pytest.raises(ValidationError):
+        _create(kind="found", circumstance="stolen")
+
+
+def test_theft_is_accepted_on_a_loss():
+    assert _create(circumstance="stolen").circumstance.value == "stolen"

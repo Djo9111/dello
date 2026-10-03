@@ -5,6 +5,7 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_theme.dart';
 import '../data/reports_repository.dart';
 import '../models/report.dart';
+import '../widgets/document_style.dart';
 
 class ReportFormScreen extends StatefulWidget {
   const ReportFormScreen({super.key});
@@ -14,16 +15,26 @@ class ReportFormScreen extends StatefulWidget {
 }
 
 class _ReportFormScreenState extends State<ReportFormScreen> {
+  static const _maxDocuments = 10;
+
   final _repository = ReportsRepository();
-  final _numberController = TextEditingController();
   final _ownerNameController = TextEditingController();
   final _communeController = TextEditingController();
   final _placeController = TextEditingController();
   final _questionController = TextEditingController();
   final _answerController = TextEditingController();
 
+  /// Un incident, plusieurs documents : un sac contient souvent la carte
+  /// d'identité et le permis.
+  final List<DocumentDraft> _documents = [
+    DocumentDraft(documentType: DocumentType.cni),
+  ];
+  final List<TextEditingController> _numberControllers = [
+    TextEditingController(),
+  ];
+
   ReportKind _kind = ReportKind.lost;
-  DocumentType _documentType = DocumentType.cni;
+  ReportCircumstance _circumstance = ReportCircumstance.lost;
   String _region = senegalRegions.first;
   DateTime? _occurredOn;
 
@@ -37,13 +48,33 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
 
   @override
   void dispose() {
-    _numberController.dispose();
     _ownerNameController.dispose();
     _communeController.dispose();
     _placeController.dispose();
     _questionController.dispose();
     _answerController.dispose();
+    for (final controller in _numberControllers) {
+      controller.dispose();
+    }
     super.dispose();
+  }
+
+  void _addDocument() {
+    if (_documents.length >= _maxDocuments) return;
+
+    setState(() {
+      _documents.add(DocumentDraft(documentType: DocumentType.autre));
+      _numberControllers.add(TextEditingController());
+    });
+  }
+
+  void _removeDocument(int index) {
+    if (_documents.length == 1) return;
+
+    setState(() {
+      _documents.removeAt(index);
+      _numberControllers.removeAt(index).dispose();
+    });
   }
 
   Future<void> _pickDate() async {
@@ -97,12 +128,16 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
       _fieldErrors = {};
     });
 
+    for (var i = 0; i < _documents.length; i++) {
+      _documents[i].documentNumber = _numberControllers[i].text;
+    }
+
     try {
       await _repository.create(
         kind: _kind,
-        documentType: _documentType,
+        documents: _documents,
         region: _region,
-        documentNumber: _numberController.text.trim(),
+        circumstance: _kind == ReportKind.lost ? _circumstance : null,
         ownerName: _ownerNameController.text.trim(),
         commune: _communeController.text.trim(),
         placeDetail: _placeController.text.trim(),
@@ -113,8 +148,10 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
         verificationAnswer: _answerController.text.trim(),
       );
 
-      // Le numéro ne reste pas en mémoire après l'envoi
-      _numberController.clear();
+      // Les numéros ne restent pas en mémoire après l'envoi
+      for (final controller in _numberControllers) {
+        controller.clear();
+      }
       _answerController.clear();
 
       if (mounted) Navigator.of(context).pop(true);
@@ -161,40 +198,55 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
                     ? null
                     : (selection) => setState(() => _kind = selection.first),
               ),
-              const SizedBox(height: 20),
-              DropdownButtonFormField<DocumentType>(
-                initialValue: _documentType,
-                decoration: const InputDecoration(labelText: 'Type de document'),
-                items: DocumentType.values
-                    .map((type) => DropdownMenuItem(
-                          value: type,
-                          child: Text(type.label),
-                        ))
-                    .toList(),
-                onChanged: _isSubmitting
-                    ? null
-                    : (value) => setState(() => _documentType = value!),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _numberController,
-                enabled: !_isSubmitting,
-                decoration: InputDecoration(
-                  labelText: 'Numéro du document (optionnel)',
-                  helperText:
-                      'Permet le rapprochement automatique. Jamais conservé en clair.',
-                  helperMaxLines: 2,
-                  prefixIcon: const Icon(Icons.pin_outlined),
-                  errorText: _fieldErrors['document_number'],
+              if (_kind == ReportKind.lost) ...[
+                const SizedBox(height: 12),
+                SegmentedButton<ReportCircumstance>(
+                  segments: const [
+                    ButtonSegment(
+                      value: ReportCircumstance.lost,
+                      label: Text('Égaré'),
+                    ),
+                    ButtonSegment(
+                      value: ReportCircumstance.stolen,
+                      label: Text('Volé'),
+                    ),
+                  ],
+                  selected: {_circumstance},
+                  onSelectionChanged: _isSubmitting
+                      ? null
+                      : (selection) =>
+                          setState(() => _circumstance = selection.first),
                 ),
+              ],
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  const Text(
+                    'Documents concernés',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                  const Spacer(),
+                  if (_documents.length < _maxDocuments)
+                    TextButton.icon(
+                      onPressed: _isSubmitting ? null : _addDocument,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Ajouter'),
+                    ),
+                ],
               ),
-              const SizedBox(height: 16),
+              const Text(
+                'Un sac contient souvent plusieurs papiers : ajoutez-les tous.',
+                style: TextStyle(fontSize: 12, color: AppTheme.inkSoft),
+              ),
+              const SizedBox(height: 12),
+              ...List.generate(_documents.length, _buildDocumentCard),
+              const SizedBox(height: 20),
               TextField(
                 controller: _ownerNameController,
                 textCapitalization: TextCapitalization.words,
                 enabled: !_isSubmitting,
                 decoration: InputDecoration(
-                  labelText: 'Nom inscrit sur le document (optionnel)',
+                  labelText: 'Nom inscrit sur les documents (optionnel)',
                   helperText: 'Affiché masqué, par exemple Mod... G...',
                   helperMaxLines: 2,
                   prefixIcon: const Icon(Icons.person_outline),
@@ -317,6 +369,65 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
                         ),
                       )
                     : const Text('Publier la déclaration'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDocumentCard(int index) {
+    final document = _documents[index];
+    final style = DocumentStyle.of(document.documentType);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 16),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Icon(style.icon, size: 20, color: style.color),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<DocumentType>(
+                        value: document.documentType,
+                        isExpanded: true,
+                        items: DocumentType.values
+                            .map((type) => DropdownMenuItem(
+                                  value: type,
+                                  child: Text(type.label),
+                                ))
+                            .toList(),
+                        onChanged: _isSubmitting
+                            ? null
+                            : (value) =>
+                                setState(() => document.documentType = value!),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Retirer',
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: _documents.length == 1 || _isSubmitting
+                        ? null
+                        : () => _removeDocument(index),
+                  ),
+                ],
+              ),
+              TextField(
+                controller: _numberControllers[index],
+                enabled: !_isSubmitting,
+                decoration: InputDecoration(
+                  labelText: 'Numéro (optionnel)',
+                  helperText: 'Permet le rapprochement automatique',
+                  prefixIcon: const Icon(Icons.pin_outlined),
+                  errorText: _fieldErrors['documents.$index.document_number'],
+                ),
               ),
             ],
           ),
