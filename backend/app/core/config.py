@@ -20,11 +20,14 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
 
-    # Base de données
-    POSTGRES_USER: str
-    POSTGRES_PASSWORD: SecretStr
-    POSTGRES_DB: str
-    POSTGRES_HOST: str = "localhost"
+    # Base de données.
+    # En développement : les champs séparés, partagés avec Docker Compose.
+    # En production : l'hébergeur fournit une URL complète, qui prend le pas.
+    DATABASE_URL: SecretStr | None = None
+    POSTGRES_USER: str = "dello"
+    POSTGRES_PASSWORD: SecretStr = SecretStr("")
+    POSTGRES_DB: str = "dello"
+    POSTGRES_HOST: str = "127.0.0.1"
     POSTGRES_PORT: int = 5432
 
     # JWT
@@ -43,7 +46,7 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = Field(default=5, ge=1, le=20)
     UPLOAD_DIR: str = "uploads"
 
-    # Rate limiting
+    # Limitation de débit
     AUTH_RATE_LIMIT: str = "5/minute"
     REPORT_CREATE_RATE_LIMIT: str = "20/hour"
 
@@ -53,14 +56,24 @@ class Settings(BaseSettings):
     OTP_RESEND_COOLDOWN_SECONDS: int = Field(default=60, ge=30, le=300)
     OTP_MAX_PER_HOUR: int = Field(default=3, ge=1, le=10)
     SMS_PROVIDER: Literal["console"] = "console"
-    OTP_REQUIRED: bool = True
     PUSH_PROVIDER: Literal["console"] = "console"
+
+    # Vérification du numéro à l'inscription. Désactivée tant qu'aucun
+    # fournisseur de SMS n'est branché : sans canal d'envoi, personne ne
+    # pourrait créer de compte.
+    OTP_REQUIRED: bool = True
+
     # Adresse publique utilisée dans les liens de partage
     PUBLIC_BASE_URL: str = "http://localhost:8000"
     PLAY_STORE_URL: str = "https://play.google.com/store/apps/details?id=sn.dello.app"
 
     @model_validator(mode="after")
     def check_security(self) -> "Settings":
+        if self.DATABASE_URL is None and not self.POSTGRES_PASSWORD.get_secret_value():
+            raise ValueError(
+                "Renseignez DATABASE_URL, ou POSTGRES_PASSWORD avec les champs séparés"
+            )
+
         jwt_key = self.JWT_SECRET_KEY.get_secret_value()
         hmac_key = self.DOCUMENT_HMAC_KEY.get_secret_value()
 
@@ -74,7 +87,12 @@ class Settings(BaseSettings):
                 raise ValueError("DEBUG doit être False en production")
             if "*" in self.CORS_ORIGINS:
                 raise ValueError("CORS_ORIGINS ne doit pas contenir '*' en production")
-            if len(self.POSTGRES_PASSWORD.get_secret_value()) < 16:
+            if not self.PUBLIC_BASE_URL.startswith("https://"):
+                raise ValueError("PUBLIC_BASE_URL doit être en HTTPS en production")
+            if (
+                self.DATABASE_URL is None
+                and len(self.POSTGRES_PASSWORD.get_secret_value()) < 16
+            ):
                 raise ValueError(
                     "POSTGRES_PASSWORD doit faire au moins 16 caractères en production"
                 )
@@ -83,6 +101,16 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
+        if self.DATABASE_URL is not None:
+            url = self.DATABASE_URL.get_secret_value()
+            # Les hébergeurs fournissent postgresql:// ; SQLAlchemy a besoin
+            # de savoir quel pilote utiliser.
+            if url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+            elif url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql+psycopg://", 1)
+            return url
+
         password = quote_plus(self.POSTGRES_PASSWORD.get_secret_value())
         return (
             f"postgresql+psycopg://{self.POSTGRES_USER}:{password}"
