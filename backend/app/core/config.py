@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     OTP_RESEND_COOLDOWN_SECONDS: int = Field(default=60, ge=30, le=300)
     OTP_MAX_PER_HOUR: int = Field(default=3, ge=1, le=10)
     SMS_PROVIDER: Literal["console"] = "console"
+    PUSH_PROVIDER: Literal["console"] = "console"
 
     @model_validator(mode="after")
     def check_security(self) -> "Settings":

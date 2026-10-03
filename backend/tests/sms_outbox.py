@@ -36,4 +36,19 @@ class RecordingSmsSender:
         raise AssertionError(f"Aucun code envoyé (messages : {self.messages})")
 
 
+class RecordingPushSender:
+    """Garde les notifications push au lieu de les envoyer."""
+
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, str, str]] = []
+
+    def send(self, token: str, title: str, body: str) -> bool:
+        self.messages.append((token, title, body))
+        return True
+
+    def clear(self) -> None:
+        self.messages.clear()
+
+
 OUTBOX = RecordingSmsSender()
+PUSH_OUTBOX = RecordingPushSender()

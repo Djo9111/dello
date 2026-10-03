@@ -21,6 +21,10 @@ from app.modules.otp import service as otp_service  # noqa: E402
 
 from tests.sms_outbox import OUTBOX  # noqa: E402
 
+from app.modules.notifications import service as notifications_service  # noqa: E402
+
+from tests.sms_outbox import OUTBOX, PUSH_OUTBOX  # noqa: E402
+
 ALEMBIC_INI = Path(__file__).resolve().parents[1] / "alembic.ini"
 
 
@@ -51,7 +55,16 @@ def sms_outbox(monkeypatch):
     """Remplace l'envoi de SMS et vide la boîte avant chaque test."""
     OUTBOX.clear()
     monkeypatch.setattr(otp_service, "get_sms_sender", lambda: OUTBOX)
+    monkeypatch.setattr(notifications_service, "get_sms_sender", lambda: OUTBOX)
     return OUTBOX
+
+
+@pytest.fixture(autouse=True)
+def push_outbox(monkeypatch):
+    """Remplace l'envoi des notifications push."""
+    PUSH_OUTBOX.clear()
+    monkeypatch.setattr(notifications_service, "get_push_sender", lambda: PUSH_OUTBOX)
+    return PUSH_OUTBOX
 
 
 @pytest.fixture

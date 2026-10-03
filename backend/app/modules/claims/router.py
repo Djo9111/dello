@@ -1,7 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Request
-
+from fastapi import APIRouter, BackgroundTasks, Request
+from app.modules.notifications import dispatch
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.modules.auth.dependencies import CurrentUser, DbSession
@@ -43,23 +43,47 @@ def answer_verification(
     data: ClaimAnswer,
     current_user: CurrentUser,
     db: DbSession,
+    background: BackgroundTasks,
 ):
     """Nouvelle tentative de réponse à la question de vérification."""
     claim = service.get_claim_as_claimant(db, claim_id, current_user)
-    return service.answer_verification(db, claim, data.answer.get_secret_value())
+    verified = service.answer_verification(db, claim, data.answer.get_secret_value())
+
+    # Le déclarant apprend que la demande vient d'être validée
+    background.add_task(dispatch.on_claim_created, verified.id)
+
+    return verified
 
 
 @router.post("/{claim_id}/approve", response_model=ClaimRead)
-def approve_claim(claim_id: uuid.UUID, current_user: CurrentUser, db: DbSession):
+def approve_claim(
+    claim_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: DbSession,
+    background: BackgroundTasks,
+):
     """Acceptation par le déclarant du signalement."""
     claim = service.get_claim_as_report_owner(db, claim_id, current_user)
-    return service.approve_claim(db, claim)
+    approved = service.approve_claim(db, claim)
+
+    background.add_task(dispatch.on_claim_resolved, approved.id)
+
+    return approved
 
 
 @router.post("/{claim_id}/reject", response_model=ClaimRead)
-def reject_claim(claim_id: uuid.UUID, current_user: CurrentUser, db: DbSession):
+def reject_claim(
+    claim_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: DbSession,
+    background: BackgroundTasks,
+):
     claim = service.get_claim_as_report_owner(db, claim_id, current_user)
-    return service.reject_claim(db, claim)
+    rejected = service.reject_claim(db, claim)
+
+    background.add_task(dispatch.on_claim_resolved, rejected.id)
+
+    return rejected
 
 
 @router.post("/{claim_id}/withdraw", response_model=ClaimRead)

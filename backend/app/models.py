@@ -6,5 +6,6 @@ from app.modules.auth import models as auth_models  # noqa: F401
 from app.modules.reports import models as reports_models  # noqa: F401
 from app.modules.claims import models as claims_models  # noqa: F401
 from app.modules.otp import models as otp_models  # noqa: F401
+from app.modules.notifications import models as notification_models  # noqa: F401
 
 __all__ = ["Base"]

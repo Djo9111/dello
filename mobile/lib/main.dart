@@ -4,8 +4,10 @@ import 'core/theme/app_theme.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/home/screens/home_screen.dart';
+import 'core/config/app_config.dart';
 
 void main() {
+  debugPrint('API utilisée : ${AppConfig.apiBaseUrl}');
   runApp(const DelloApp());
 }
 

@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
+from app.modules.notifications import dispatch
 
 from app.core.config import settings
 from app.core.rate_limit import limiter
@@ -108,8 +109,15 @@ def create_report(
     data: ReportCreate,
     current_user: CurrentUser,
     db: DbSession,
+    background: BackgroundTasks,
 ):
-    return ReportRead.from_report(service.create_report(db, current_user, data))
+    report = service.create_report(db, current_user, data)
+
+    # Recherche de correspondances et envoi hors du temps de réponse :
+    # l'utilisateur n'attend pas que les SMS partent.
+    background.add_task(dispatch.on_report_created, report.id)
+
+    return ReportRead.from_report(report)
 
 @router.post(
     "/{report_id}/claims",
@@ -124,6 +132,7 @@ def claim_report(
     data: ClaimCreate,
     current_user: CurrentUser,
     db: DbSession,
+    background: BackgroundTasks,
 ):
     """Demande de mise en relation sur un signalement.
 
@@ -131,13 +140,17 @@ def claim_report(
     l'échange des contacts, sinon le déclarant tranche.
     """
     report = service.get_public_report(db, report_id)
-    return claims_service.create_claim(
+    claim = claims_service.create_claim(
         db,
         report,
         current_user,
         message=data.message,
         answer=data.answer.get_secret_value() if data.answer is not None else None,
     )
+
+    background.add_task(dispatch.on_claim_created, claim.id)
+
+    return claim
 
 
 @router.post("/{report_id}/close", response_model=ReportRead)
