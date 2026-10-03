@@ -50,17 +50,26 @@ class AuthController extends ChangeNotifier {
     await _loadCurrentUser();
   }
 
-  /// Demande d'un code. Le compte n'existe pas encore à ce stade.
-  Future<void> startRegistration({
+    /// Demande d'inscription.
+  ///
+  /// Retourne vrai si un code doit être saisi. Si le serveur n'exige pas
+  /// de vérification, la session est déjà ouverte au retour.
+  Future<bool> startRegistration({
     required String phoneNumber,
     required String fullName,
     required String password,
-  }) {
-    return _repository.startRegistration(
+  }) async {
+    final verificationRequired = await _repository.startRegistration(
       phoneNumber: phoneNumber,
       fullName: fullName,
       password: password,
     );
+
+    if (!verificationRequired) {
+      await _loadCurrentUser();
+    }
+
+    return verificationRequired;
   }
 
   Future<void> resendCode(String phoneNumber) =>

@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     OTP_RESEND_COOLDOWN_SECONDS: int = Field(default=60, ge=30, le=300)
     OTP_MAX_PER_HOUR: int = Field(default=3, ge=1, le=10)
     SMS_PROVIDER: Literal["console"] = "console"
+    OTP_REQUIRED: bool = True
     PUSH_PROVIDER: Literal["console"] = "console"
     # Adresse publique utilisée dans les liens de partage
     PUBLIC_BASE_URL: str = "http://localhost:8000"

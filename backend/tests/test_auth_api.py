@@ -41,7 +41,9 @@ def _auth_header(access_token: str) -> dict:
 def test_registration_does_not_create_the_account_yet(client):
     response = _start_registration(client)
 
-    assert response.status_code == 202
+    assert response.status_code == 200
+    assert response.json()["verification_required"] is True
+    assert response.json()["tokens"] is None
     assert _login(client).status_code == 401
 
 
@@ -91,7 +93,7 @@ def test_existing_account_gets_the_same_response(client, db_session):
 
     second = _start_registration(client, name="Usurpateur")
 
-    assert first.status_code == second.status_code == 202
+    assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
 
 
@@ -277,6 +279,48 @@ def test_login_is_rate_limited(rate_limited_client):
     assert [r.status_code for r in responses[:5]] == [401] * 5
     assert responses[5].status_code == 429
 
+
+# ---------------------------------------------------------------------------
+# Inscription sans vérification du numéro
+# ---------------------------------------------------------------------------
+
+
+def test_registration_without_verification_returns_tokens(no_verification_client):
+    """Mode utilisé tant qu'aucun fournisseur de SMS n'est branché."""
+    response = _start_registration(no_verification_client)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["verification_required"] is False
+    assert body["tokens"]["access_token"]
+
+    me = no_verification_client.get(
+        f"{API}/users/me",
+        headers=_auth_header(body["tokens"]["access_token"]),
+    )
+    assert me.json()["phone_number"] == NORMALIZED
+    # Le numéro n'a pas été prouvé : pas de SMS vers lui
+    assert me.json()["is_phone_verified"] is False
+
+
+def test_no_code_is_sent_without_verification(no_verification_client):
+    _start_registration(no_verification_client)
+
+    assert OUTBOX.messages == []
+
+
+def test_duplicate_registration_without_verification_is_refused(no_verification_client):
+    _start_registration(no_verification_client)
+
+    response = _start_registration(no_verification_client, name="Usurpateur")
+
+    assert response.status_code == 409
+
+
+def test_login_works_after_a_direct_registration(no_verification_client):
+    _start_registration(no_verification_client)
+
+    assert _login(no_verification_client).status_code == 200
 
 def test_security_headers_are_present(client):
     response = client.get("/health")

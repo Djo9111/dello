@@ -30,7 +30,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  Future<void> _submit() async {
+    Future<void> _submit() async {
     if (_isSubmitting) return;
 
     setState(() {
@@ -42,13 +42,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final phone = _phoneController.text.trim();
 
     try {
-      await AuthController.instance.startRegistration(
+      final verificationRequired =
+          await AuthController.instance.startRegistration(
         phoneNumber: phone,
         fullName: _nameController.text.trim(),
         password: _passwordController.text,
       );
 
       if (!mounted) return;
+
+      if (!verificationRequired) {
+        // Compte créé et session ouverte : AuthGate affiche déjà l'accueil,
+        // il reste à vider les écrans empilés par-dessus.
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        return;
+      }
+
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
           builder: (_) => VerifyPhoneScreen(phoneNumber: _toE164(phone)),
@@ -148,7 +157,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ],
               const SizedBox(height: 24),
-              FilledButton(
+                            FilledButton(
                 onPressed: _isSubmitting ? null : _submit,
                 child: _isSubmitting
                     ? const SizedBox(
@@ -159,11 +168,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text('Recevoir mon code'),
+                    : const Text('Créer mon compte'),
               ),
               const SizedBox(height: 12),
-              const Text(
-                'Votre compte sera créé une fois le numéro vérifié.',
+                            const Text(
+                'Votre numéro servira à vous joindre si votre document est retrouvé.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: AppTheme.inkSoft),
               ),

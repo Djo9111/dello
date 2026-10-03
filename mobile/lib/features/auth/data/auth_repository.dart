@@ -13,15 +13,19 @@ class AuthRepository {
   final Dio _dio;
   final TokenStorage _storage;
 
-  /// Première étape : aucun compte n'est créé, un code part par SMS.
-  /// La réponse est la même que le numéro soit libre ou déjà inscrit.
-  Future<void> startRegistration({
+  
+  /// Inscription. Le serveur décide du parcours selon qu'il exige ou non
+  /// la vérification du numéro, et l'application s'adapte.
+  ///
+  /// Retourne vrai si un code doit être saisi, faux si le compte est
+  /// déjà créé et la session ouverte.
+  Future<bool> startRegistration({
     required String phoneNumber,
     required String fullName,
     required String password,
   }) async {
     try {
-      await _dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<Map<String, dynamic>>(
         '/auth/register',
         data: {
           'phone_number': phoneNumber,
@@ -29,6 +33,15 @@ class AuthRepository {
           'password': password,
         },
       );
+
+      final body = response.data!;
+      final verificationRequired = body['verification_required'] as bool? ?? true;
+
+      if (!verificationRequired) {
+        await _saveTokens(body['tokens'] as Map<String, dynamic>);
+      }
+
+      return verificationRequired;
     } on DioException catch (error) {
       throw ApiException.from(error);
     }

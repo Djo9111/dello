@@ -51,6 +51,13 @@ def db_session():
 
 
 @pytest.fixture(autouse=True)
+def verification_enabled(monkeypatch):
+    """Les tests ne dépendent pas du réglage de la machine : la
+    vérification est active par défaut, et seul no_verification_client
+    la désactive."""
+    monkeypatch.setattr(settings, "OTP_REQUIRED", True)
+
+@pytest.fixture(autouse=True)
 def sms_outbox(monkeypatch):
     """Remplace l'envoi de SMS et vide la boîte avant chaque test."""
     OUTBOX.clear()
@@ -77,6 +84,13 @@ def client():
     limiter.enabled = True
     _truncate_all_tables()
 
+
+@pytest.fixture
+def no_verification_client(client, monkeypatch):
+    """Client avec la vérification du numéro désactivée, comme en
+    attendant un fournisseur de SMS."""
+    monkeypatch.setattr(settings, "OTP_REQUIRED", False)
+    yield client
 
 @pytest.fixture
 def rate_limited_client(client):

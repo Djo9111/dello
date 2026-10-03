@@ -45,6 +45,14 @@ logger = logging.getLogger("dello")
 async def lifespan(app: FastAPI):
     # Échouer au démarrage plutôt que de servir des 500 sur une table manquante
     verify_database_schema()
+
+    if not settings.OTP_REQUIRED:
+        # Visible a chaque demarrage, pour que le mode ne s'oublie pas
+        logger.warning(
+            "OTP_REQUIRED=false : les numeros de telephone ne sont pas verifies. "
+            "A remettre a true des qu'un fournisseur de SMS est branche."
+        )
+
     yield
 
 

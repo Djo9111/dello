@@ -9,19 +9,22 @@ PASSWORD = "Tamarin-Soleil-9"
 
 
 def create_account(client, phone: str, name: str = "Awa Diop") -> dict:
-    """Inscription complète en deux étapes, jusqu'aux tokens.
+    """Inscription complète, quel que soit le mode de vérification.
 
     Retourne l'en-tête d'authentification prêt à l'emploi.
     """
-    client.post(
+    response = client.post(
         f"{API}/auth/register",
         json={"phone_number": phone, "full_name": name, "password": PASSWORD},
-    )
-    code = OUTBOX.last_code()
-
-    tokens = client.post(
-        f"{API}/auth/verify", json={"phone_number": phone, "code": code}
     ).json()
+
+    if not response.get("verification_required"):
+        tokens = response["tokens"]
+    else:
+        code = OUTBOX.last_code()
+        tokens = client.post(
+            f"{API}/auth/verify", json={"phone_number": phone, "code": code}
+        ).json()
 
     return {"Authorization": f"Bearer {tokens['access_token']}"}
 

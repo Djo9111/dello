@@ -118,6 +118,17 @@ class ResendCodeRequest(StrictModel):
     def validate_phone_number(cls, value: str) -> str:
         return normalize_senegal_mobile(value)
 
+class RegistrationResponse(BaseModel):
+    """Réponse d'inscription, dans les deux modes.
+
+    Avec vérification : un message, et le compte n'existe pas encore.
+    Sans vérification : les tokens, le compte est créé immédiatement.
+    L'application regarde verification_required pour savoir où aller.
+    """
+
+    verification_required: bool
+    message: str
+    tokens: "TokenResponse | None" = None
 
 class PendingVerificationResponse(BaseModel):
     """Réponse identique que le numéro ait déjà un compte ou non :

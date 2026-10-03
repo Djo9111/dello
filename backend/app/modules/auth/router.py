@@ -9,6 +9,7 @@ from app.modules.auth.schemas import (
     PendingVerificationResponse,
     RefreshRequest,
     RegisterRequest,
+    RegistrationResponse,
     ResendCodeRequest,
     TokenResponse,
     VerifyPhoneRequest,
@@ -33,17 +34,28 @@ from app.modules.auth.schemas import (
 router = APIRouter(prefix="/auth", tags=["Authentification"])
 
 
-@router.post(
-    "/register",
-    response_model=PendingVerificationResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
+@router.post("/register", response_model=RegistrationResponse)
 @limiter.limit(settings.AUTH_RATE_LIMIT)
 def register(request: Request, data: RegisterRequest, db: DbSession):
-    """Première étape. Aucun compte n'est créé tant que le numéro n'est
-    pas vérifié, et la réponse ne dit pas si ce numéro est déjà inscrit."""
+    """Inscription.
+
+    Avec vérification du numéro : aucun compte n'est créé tant que le code
+    n'est pas validé, et la réponse ne dit pas si ce numéro est déjà inscrit.
+    Sans vérification : le compte est créé et les tokens sont renvoyés.
+    """
+    if not settings.OTP_REQUIRED:
+        tokens = service.register_without_verification(db, data)
+        return RegistrationResponse(
+            verification_required=False,
+            message="Compte créé.",
+            tokens=tokens,
+        )
+
     service.start_registration(db, data)
-    return PendingVerificationResponse()
+    return RegistrationResponse(
+        verification_required=True,
+        message=PendingVerificationResponse().message,
+    )
 
 
 @router.post("/verify", response_model=TokenResponse)

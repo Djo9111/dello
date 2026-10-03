@@ -39,6 +39,39 @@ def _now() -> datetime:
 # Inscription
 # ---------------------------------------------------------------------------
 
+def register_without_verification(db: Session, data: RegisterRequest) -> TokenResponse:
+    """Inscription directe, quand la vérification du numéro est désactivée.
+
+    Le numéro n'est alors pas prouvé : le compte est marqué non vérifié,
+    ce qui coupe l'envoi de notifications par SMS vers lui.
+    """
+    already_exists = db.scalar(
+        select(User.id).where(User.phone_number == data.phone_number)
+    )
+    if already_exists is not None:
+        raise PhoneAlreadyRegisteredError()
+
+    user = User(
+        phone_number=data.phone_number,
+        full_name=data.full_name,
+        hashed_password=hash_password(data.password.get_secret_value()),
+        is_phone_verified=False,
+        last_login_at=_now(),
+    )
+    db.add(user)
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise PhoneAlreadyRegisteredError() from exc
+
+    db.refresh(user)
+
+    tokens = _issue_tokens(db, user.id, family_id=uuid.uuid4())
+    db.commit()
+    return tokens
+
 def start_registration(db: Session, data: RegisterRequest) -> None:
     """Première étape : le compte n'est pas créé, un code part par SMS.
 
