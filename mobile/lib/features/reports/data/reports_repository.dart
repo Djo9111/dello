@@ -155,4 +155,14 @@ class ReportsRepository {
       throw ApiException.from(error);
     }
   }
+
+    /// Vue publique d'un signalement, par exemple celui d'une correspondance.
+  Future<Report> getPublic(String reportId) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>('/reports/$reportId');
+      return Report.fromJson(response.data!);
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    }
+  }
 }

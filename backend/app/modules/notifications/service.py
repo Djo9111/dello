@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,13 +19,17 @@ from app.modules.users.models import User
 
 logger = logging.getLogger("dello.notifications")
 
+MAX_PAGE_SIZE = 50
+
 # Titre pour le push, message court pour le SMS. Les SMS restent sans
 # accents : hors alphabet GSM, un message est facturé double.
 MESSAGES: dict[NotificationEvent, tuple[str, str]] = {
     NotificationEvent.CLAIM_RECEIVED: (
         "Nouvelle demande",
-        "Dello : quelqu'un dit que le document que vous avez signale lui appartient. "
-        "Ouvrez l'application pour repondre.",
+        # Formulation neutre : une demande peut venir du proprietaire d'un
+        # document trouve, comme de quelqu'un qui detient un document perdu.
+        "Dello : vous avez recu une demande de mise en relation sur votre "
+        "signalement. Ouvrez l'application pour repondre.",
     ),
     NotificationEvent.CLAIM_APPROVED: (
         "Demande acceptee",
@@ -76,8 +80,10 @@ def notify(
         channel = NotificationChannel.SMS
         sent = _send_sms(user.phone_number, body)
     else:
-        logger.info("Aucun canal disponible pour l'utilisateur %s", user.id)
-        return None
+        # Aucun envoi externe possible : la notification attend dans
+        # l'application, où elle sera lue à la prochaine ouverture.
+        channel = NotificationChannel.IN_APP
+        sent = True
 
     entry = NotificationLog(
         user_id=user.id,
@@ -99,6 +105,68 @@ def notify(
     db.refresh(entry)
     return entry
 
+
+# ---------------------------------------------------------------------------
+# Boîte de réception
+# ---------------------------------------------------------------------------
+
+
+def list_notifications(
+    db: Session, user: User, *, limit: int = 30, offset: int = 0
+) -> list[NotificationLog]:
+    """Notifications de l'utilisateur, de la plus récente à la plus ancienne.
+
+    Toute notification est enregistrée, quel que soit le canal utilisé pour
+    la faire sortir du serveur : la boîte de réception reste complète même
+    si un envoi externe a échoué.
+    """
+    query = (
+        select(NotificationLog)
+        .where(NotificationLog.user_id == user.id)
+        .order_by(NotificationLog.created_at.desc())
+        .limit(min(limit, MAX_PAGE_SIZE))
+        .offset(max(offset, 0))
+    )
+    return list(db.scalars(query))
+
+
+def count_unread(db: Session, user: User) -> int:
+    return db.scalar(
+        select(func.count())
+        .select_from(NotificationLog)
+        .where(
+            NotificationLog.user_id == user.id,
+            NotificationLog.read_at.is_(None),
+        )
+    )
+
+
+def mark_as_read(db: Session, user: User, notification_id: uuid.UUID) -> bool:
+    """Retourne faux si la notification n'existe pas ou appartient à
+    quelqu'un d'autre : les deux cas se traitent de la même façon."""
+    notification = db.get(NotificationLog, notification_id)
+
+    if notification is None or notification.user_id != user.id:
+        return False
+
+    if notification.read_at is None:
+        notification.read_at = datetime.now(UTC)
+        db.commit()
+
+    return True
+
+
+def mark_all_as_read(db: Session, user: User) -> int:
+    result = db.execute(
+        update(NotificationLog)
+        .where(
+            NotificationLog.user_id == user.id,
+            NotificationLog.read_at.is_(None),
+        )
+        .values(read_at=datetime.now(UTC))
+    )
+    db.commit()
+    return result.rowcount or 0
 
 def register_device(
     db: Session, user: User, token: str, platform: str

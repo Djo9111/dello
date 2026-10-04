@@ -153,6 +153,23 @@ class Report {
     return '${documents.first.documentType.label} +${documents.length - 1}';
   }
 
+    /// Le sens de la demande dépend du signalement : sur un document trouvé,
+  /// le demandeur est le propriétaire ; sur un document perdu, c'est celui
+  /// qui a récupéré la pièce.
+  bool get isFound => kind == ReportKind.found;
+
+  String get claimPrompt =>
+      isFound ? 'Ce document est le vôtre ?' : 'Vous avez ce document ?';
+
+  String get claimExplanation => isFound
+      ? 'Répondez à la question du déclarant. Une bonne réponse vous donne '
+        'son contact immédiatement.'
+      : 'Dites au déclarant que vous avez son document. Une bonne réponse à '
+        'sa question vous met en relation immédiatement.';
+
+  String get claimAction =>
+      isFound ? 'Envoyer ma demande' : "Signaler que je l'ai";
+
   /// Libellé du sens, enrichi de la circonstance quand elle est connue
   String get kindLabel =>
       circumstance == null ? kind.label : circumstance!.label;

@@ -34,7 +34,6 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
   ];
 
   ReportKind _kind = ReportKind.lost;
-  ReportCircumstance _circumstance = ReportCircumstance.lost;
   String _region = senegalRegions.first;
   DateTime? _occurredOn;
 
@@ -137,7 +136,6 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
         kind: _kind,
         documents: _documents,
         region: _region,
-        circumstance: _kind == ReportKind.lost ? _circumstance : null,
         ownerName: _ownerNameController.text.trim(),
         commune: _communeController.text.trim(),
         placeDetail: _placeController.text.trim(),
@@ -198,26 +196,7 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
                     ? null
                     : (selection) => setState(() => _kind = selection.first),
               ),
-              if (_kind == ReportKind.lost) ...[
-                const SizedBox(height: 12),
-                SegmentedButton<ReportCircumstance>(
-                  segments: const [
-                    ButtonSegment(
-                      value: ReportCircumstance.lost,
-                      label: Text('Égaré'),
-                    ),
-                    ButtonSegment(
-                      value: ReportCircumstance.stolen,
-                      label: Text('Volé'),
-                    ),
-                  ],
-                  selected: {_circumstance},
-                  onSelectionChanged: _isSubmitting
-                      ? null
-                      : (selection) =>
-                          setState(() => _circumstance = selection.first),
-                ),
-              ],
+              
               const SizedBox(height: 24),
               Row(
                 children: [

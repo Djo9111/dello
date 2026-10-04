@@ -38,6 +38,8 @@ from app.modules.notifications.router import router as devices_router
 
 from app.modules.reports.share_router import router as share_router
 
+from app.modules.notifications.router import devices_router, router as notifications_router
+
 logger = logging.getLogger("dello")
 
 
@@ -237,3 +239,5 @@ app.include_router(claims_router, prefix=settings.API_V1_PREFIX)
 app.include_router(devices_router, prefix=settings.API_V1_PREFIX)
 # Sans prefixe : liens courts destines au partage
 app.include_router(share_router)
+app.include_router(notifications_router, prefix=settings.API_V1_PREFIX)
+app.include_router(devices_router, prefix=settings.API_V1_PREFIX)

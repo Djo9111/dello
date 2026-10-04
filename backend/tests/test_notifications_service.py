@@ -67,13 +67,6 @@ def test_push_reaches_every_device(db_session):
     assert len(PUSH_OUTBOX.messages) == 2
 
 
-def test_unverified_number_without_device_gets_nothing(db_session):
-    user = _user(db_session, verified=False)
-
-    assert service.notify(db_session, user, EVENT) is None
-    assert OUTBOX.messages == []
-
-
 def test_sms_messages_stay_in_the_gsm_alphabet(db_session):
     """Un accent fait basculer le SMS en Unicode, donc double le coût."""
     for _, body in service.MESSAGES.values():
@@ -202,3 +195,14 @@ def test_a_failing_sender_is_logged_not_raised(db_session, monkeypatch):
     entry = service.notify(db_session, user, EVENT)
 
     assert entry.status is NotificationStatus.FAILED
+
+def test_unverified_number_without_device_waits_in_the_app(db_session):
+    """Plus rien n'est perdu : sans appareil ni numéro vérifié, la
+    notification reste consultable dans l'application."""
+    user = _user(db_session, verified=False)
+
+    entry = service.notify(db_session, user, EVENT)
+
+    assert entry.channel is NotificationChannel.IN_APP
+    assert entry.read_at is None
+    assert OUTBOX.messages == []    

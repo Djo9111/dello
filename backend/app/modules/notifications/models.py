@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,6 +17,9 @@ class NotificationEvent(str, enum.Enum):
 
 
 class NotificationChannel(str, enum.Enum):
+    # Comment la notification a quitté le serveur. IN_APP signifie qu'aucun
+    # envoi externe n'a eu lieu : elle attend dans l'application.
+    IN_APP = "in_app"
     PUSH = "push"
     SMS = "sms"
 
@@ -54,12 +57,13 @@ class DeviceToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class NotificationLog(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """Trace des envois.
+    """Boîte de réception et trace des envois.
 
-    Sert à ne pas prévenir deux fois pour la même chose, ce qui compte
-    d'autant plus que chaque SMS est payant. Le lien vers l'utilisateur
-    passe à NULL si le compte est supprimé : la trace reste, l'identité
-    disparaît.
+    Une ligne par événement et par destinataire : elle sert à la fois de
+    message consultable dans l'application et de preuve d'envoi, ce qui
+    évite de prévenir deux fois pour la même chose. Le lien vers
+    l'utilisateur passe à NULL si le compte est supprimé : la trace reste,
+    l'identité disparaît.
     """
 
     __tablename__ = "notification_log"
@@ -84,8 +88,14 @@ class NotificationLog(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Empreinte de l'événement, pour ne pas renvoyer le même message
     dedup_key: Mapped[str | None] = mapped_column(String(120))
 
+    # Lue dans l'application. Non renseigné tant que l'utilisateur ne l'a
+    # pas ouverte, ce qui alimente la pastille de l'onglet.
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     __table_args__ = (
         UniqueConstraint("dedup_key", name="one_message_per_event"),
+        # Requête exacte de la boîte de réception et du compteur de non-lus
+        Index("ix_notification_log_inbox", "user_id", "read_at", "created_at"),
     )
 
     def __repr__(self) -> str:

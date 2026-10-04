@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../claims/data/claims_repository.dart';
 import '../models/report.dart';
 
@@ -71,11 +72,11 @@ class _ReportPublicDetailScreenState extends State<ReportPublicDetailScreen> {
     final report = widget.report;
 
     return Scaffold(
-      appBar: const _DetailAppBar(),
+      appBar: AppBar(title: const Text('Signalement')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-                    Text(
+          Text(
             report.documentsLabel,
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
@@ -85,7 +86,7 @@ class _ReportPublicDetailScreenState extends State<ReportPublicDetailScreen> {
             const SizedBox(height: 12),
             Text('Nom sur le document : ${report.ownerNameMasked}'),
           ],
-                    if (report.documents.length > 1) ...[
+          if (report.documents.length > 1) ...[
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -99,16 +100,16 @@ class _ReportPublicDetailScreenState extends State<ReportPublicDetailScreen> {
             ),
           ],
           const Divider(height: 32),
-          const Text(
-            'Ce document est le vôtre ?',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          Text(
+            report.claimPrompt,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
           ),
           const SizedBox(height: 8),
           Text(
             report.hasVerificationQuestion
-                ? 'Répondez à la question du déclarant. Une bonne réponse vous donne son contact immédiatement.'
+                ? report.claimExplanation
                 : 'Votre demande sera transmise au déclarant, qui décidera.',
-            style: const TextStyle(color: Colors.black54, fontSize: 13),
+            style: const TextStyle(color: AppTheme.inkSoft, fontSize: 13),
           ),
           const SizedBox(height: 16),
           if (report.hasVerificationQuestion) ...[
@@ -162,20 +163,10 @@ class _ReportPublicDetailScreenState extends State<ReportPublicDetailScreen> {
                       color: Colors.white,
                     ),
                   )
-                : const Text('Envoyer ma demande'),
+                : Text(report.claimAction),
           ),
         ],
       ),
     );
   }
-}
-
-class _DetailAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const _DetailAppBar();
-
-  @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
-
-  @override
-  Widget build(BuildContext context) => AppBar(title: const Text('Signalement'));
 }

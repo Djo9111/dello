@@ -62,4 +62,13 @@ class ClaimsRepository {
       throw ApiException.from(error);
     }
   }
+
+    Future<Claim> getClaim(String claimId) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>('/claims/$claimId');
+      return Claim.fromJson(response.data!);
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    }
+  }
 }

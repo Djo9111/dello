@@ -5,6 +5,7 @@ import '../../../core/network/api_exception.dart';
 import '../data/claims_repository.dart';
 import '../models/claim.dart';
 import '../../reports/models/report.dart';
+import '../../../core/theme/app_theme.dart';
 
 class ClaimDetailScreen extends StatefulWidget {
   const ClaimDetailScreen({
@@ -97,7 +98,7 @@ class _ClaimDetailScreenState extends State<ClaimDetailScreen> {
         body: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-                        Text(
+                                    Text(
               report.documentsLabel,
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
@@ -156,17 +157,21 @@ class _ClaimDetailScreenState extends State<ClaimDetailScreen> {
     ];
   }
 
-  List<Widget> _buildOwnerActions() {
+    List<Widget> _buildOwnerActions() {
+    final report = _claim.report;
+
     return [
-      const Text(
-        'Cette personne dit que le document lui appartient.',
-        style: TextStyle(color: Colors.black54),
+      Text(
+        report.isFound
+            ? 'Cette personne dit que le document lui appartient.'
+            : 'Cette personne dit avoir votre document.',
+        style: const TextStyle(color: AppTheme.inkSoft),
       ),
       if (_claim.answerAttempts > 0) ...[
         const SizedBox(height: 8),
         Text(
           'Réponses incorrectes à votre question : ${_claim.answerAttempts}',
-          style: const TextStyle(fontSize: 13, color: Colors.black54),
+          style: const TextStyle(fontSize: 13, color: AppTheme.inkSoft),
         ),
       ],
       const SizedBox(height: 16),
