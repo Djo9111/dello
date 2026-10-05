@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../data/reports_repository.dart';
 import '../models/report.dart';
 import '../widgets/report_tile.dart';
+import '../widgets/documents_section.dart';
 
 class ReportDetailScreen extends StatefulWidget {
   const ReportDetailScreen({super.key, required this.reportId});
@@ -205,7 +206,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        Text(
+                Text(
           report.documentsLabel,
           style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
         ),
@@ -213,30 +214,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
         Text('${report.kindLabel} · ${report.status.label}'),
         const SizedBox(height: 20),
         _ShareBanner(onShare: _isSharing ? null : _share),
-        const SizedBox(height: 20),
-        _InfoRow(label: 'Nom masqué', value: report.ownerNameMasked ?? 'Non renseigné'),
-        _InfoRow(label: 'Lieu', value: report.locationLabel),
+        const SizedBox(height: 24),
+        DocumentsSection(report: report),
+        const SizedBox(height: 8),
         _InfoRow(label: 'Lieu précis', value: report.placeDetail ?? 'Non renseigné'),
-        const SizedBox(height: 8),
-        const Text(
-          'Documents déclarés',
-          style: TextStyle(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-        ...report.documents.map(
-          (document) => Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Row(
-              children: [
-                Expanded(child: Text(document.documentType.label)),
-                Text(
-                  document.hasDocumentNumber ? 'Numéro enregistré' : 'Sans numéro',
-                  style: const TextStyle(fontSize: 12, color: AppTheme.inkSoft),
-                ),
-              ],
-            ),
-          ),
-        ),
         const Divider(height: 32),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,

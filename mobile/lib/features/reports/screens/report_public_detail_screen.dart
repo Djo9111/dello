@@ -4,6 +4,7 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../claims/data/claims_repository.dart';
 import '../models/report.dart';
+import '../widgets/documents_section.dart';
 
 class ReportPublicDetailScreen extends StatefulWidget {
   const ReportPublicDetailScreen({super.key, required this.report});
@@ -75,30 +76,15 @@ class _ReportPublicDetailScreenState extends State<ReportPublicDetailScreen> {
       appBar: AppBar(title: const Text('Signalement')),
       body: ListView(
         padding: const EdgeInsets.all(20),
-        children: [
+                children: [
           Text(
             report.documentsLabel,
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
           Text('${report.kindLabel} · ${report.locationLabel}'),
-          if (report.ownerNameMasked != null) ...[
-            const SizedBox(height: 12),
-            Text('Nom sur le document : ${report.ownerNameMasked}'),
-          ],
-          if (report.documents.length > 1) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: report.documents
-                  .map((document) => Chip(
-                        label: Text(document.documentType.label),
-                        visualDensity: VisualDensity.compact,
-                      ))
-                  .toList(),
-            ),
-          ],
+          const SizedBox(height: 20),
+          DocumentsSection(report: report),
           const Divider(height: 32),
           Text(
             report.claimPrompt,
