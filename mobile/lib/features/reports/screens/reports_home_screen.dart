@@ -9,6 +9,7 @@ import '../models/report.dart';
 import '../widgets/document_style.dart';
 import '../widgets/family_carousel.dart';
 import '../widgets/report_tile.dart';
+import 'report_form_screen.dart';
 import 'report_public_detail_screen.dart';
 import 'reports_family_screen.dart';
 
@@ -22,6 +23,7 @@ class ReportsHomeScreen extends StatefulWidget {
 class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
   static const _previewSize = 10;
   static const _searchDebounce = Duration(milliseconds: 450);
+  static const _minSearchLength = 2;
 
   final _repository = ReportsRepository();
   final _searchController = TextEditingController();
@@ -29,12 +31,18 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
   Timer? _debounce;
   Map<DocumentType, List<Report>> _byFamily = {};
   List<Report> _searchResults = [];
+
+  /// Terme réellement envoyé au serveur. Distinct du texte en cours de
+  /// frappe : le message "aucun résultat" ne doit pas clignoter à chaque
+  /// lettre tapée.
   String _search = '';
+  bool _hasSearched = false;
+
   ReportKind? _kind;
   bool _isLoading = true;
   String? _error;
 
-  bool get _isSearching => _search.length >= 2;
+  bool get _isSearching => _search.length >= _minSearchLength;
 
   @override
   void initState() {
@@ -49,10 +57,10 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
     super.dispose();
   }
 
-  /// Attente avant l'appel : sans cela, une requête partirait à chaque
-  /// lettre tapée, et les réponses pourraient revenir dans le désordre.
   void _onSearchChanged(String value) {
     _debounce?.cancel();
+    setState(() => _hasSearched = false);
+
     _debounce = Timer(_searchDebounce, () {
       setState(() => _search = value.trim());
       _load();
@@ -62,7 +70,10 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
   void _clearSearch() {
     _debounce?.cancel();
     _searchController.clear();
-    setState(() => _search = '');
+    setState(() {
+      _search = '';
+      _hasSearched = false;
+    });
     _load();
   }
 
@@ -79,7 +90,12 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
           search: _search,
           limit: 50,
         );
-        if (mounted) setState(() => _searchResults = results);
+        if (mounted) {
+          setState(() {
+            _searchResults = results;
+            _hasSearched = true;
+          });
+        }
       } else {
         // Une requête par famille, lancées ensemble : chaque ligne reste
         // remplie même si une famille n'a que des signalements anciens.
@@ -122,6 +138,26 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
     if (changed == true) _load();
   }
 
+  /// Le numéro tapé part dans le formulaire : l'utilisateur l'a déjà saisi,
+  /// le redemander serait une friction inutile.
+  Future<void> _declare(ReportKind kind) async {
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ReportFormScreen(
+          initialKind: kind,
+          initialDocumentNumber: _search,
+        ),
+      ),
+    );
+
+    if (created == true && mounted) {
+      _clearSearch();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Déclaration enregistrée')),
+      );
+    }
+  }
+
   void _setKind(ReportKind? kind) {
     setState(() => _kind = kind);
     _load();
@@ -131,25 +167,11 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-          child: TextField(
-            controller: _searchController,
-            onChanged: _onSearchChanged,
-            textInputAction: TextInputAction.search,
-            decoration: InputDecoration(
-              hintText: 'Numéro du document, commune, nom...',
-              prefixIcon: const Icon(Icons.search, color: AppTheme.inkSoft),
-              suffixIcon: _searchController.text.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: _clearSearch,
-                    ),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            ),
-          ),
+        _SearchHeader(
+          controller: _searchController,
+          onChanged: _onSearchChanged,
+          onClear: _clearSearch,
+          isSearching: _isSearching,
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -253,9 +275,10 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
 
   Widget _buildSearchResults() {
     if (_searchResults.isEmpty) {
-      return const _EmptyState(
-        message: 'Aucun résultat.\nEssayez le numéro du document ou une commune.',
-      );
+      // Tant que la recherche n'a pas abouti, on n'affiche rien : le
+      // message ne doit pas apparaître pendant la frappe.
+      if (!_hasSearched) return const SizedBox.shrink();
+      return _NoResult(onDeclare: _declare);
     }
 
     return Column(
@@ -265,7 +288,9 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              '${_searchResults.length} résultat${_searchResults.length > 1 ? 's' : ''}',
+              _searchResults.length > 1
+                  ? '${_searchResults.length} signalements correspondent'
+                  : 'Un signalement correspond',
               style: const TextStyle(color: AppTheme.inkSoft, fontSize: 13),
             ),
           ),
@@ -279,6 +304,105 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
               onTap: () => _openReport(_searchResults[index]),
             ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SearchHeader extends StatelessWidget {
+  const _SearchHeader({
+    required this.controller,
+    required this.onChanged,
+    required this.onClear,
+    required this.isSearching,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+  final bool isSearching;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // L'accroche disparaît pendant la recherche, pour laisser la
+          // place aux résultats sur les petits écrans.
+          if (!isSearching) ...[
+            const Text(
+              'Vous avez perdu un document ?',
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.ink,
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              "Entrez son numéro pour voir s'il a été signalé.",
+              style: TextStyle(fontSize: 13, color: AppTheme.inkSoft),
+            ),
+            const SizedBox(height: 12),
+          ],
+          TextField(
+            controller: controller,
+            onChanged: onChanged,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Numéro du document, commune ou nom',
+              prefixIcon: const Icon(Icons.search, color: AppTheme.inkSoft),
+              suffixIcon: controller.text.isEmpty
+                  ? null
+                  : IconButton(icon: const Icon(Icons.close), onPressed: onClear),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NoResult extends StatelessWidget {
+  const _NoResult({required this.onDeclare});
+
+  final void Function(ReportKind) onDeclare;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+      children: [
+        const Icon(Icons.search_off, size: 48, color: AppTheme.inkSoft),
+        const SizedBox(height: 16),
+        const Text(
+          'Aucun signalement ne correspond pour le moment.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Déclarez votre document : vous serez prévenu dès que quelqu\'un '
+          'le signalera.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 13, color: AppTheme.inkSoft),
+        ),
+        const SizedBox(height: 24),
+        FilledButton.icon(
+          onPressed: () => onDeclare(ReportKind.lost),
+          icon: const Icon(Icons.search_off_outlined, size: 18),
+          label: const Text("J'ai perdu ce document"),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: () => onDeclare(ReportKind.found),
+          icon: const Icon(Icons.inventory_2_outlined, size: 18),
+          label: const Text("J'ai trouvé ce document"),
         ),
       ],
     );

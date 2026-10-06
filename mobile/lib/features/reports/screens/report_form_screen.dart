@@ -8,7 +8,17 @@ import '../models/report.dart';
 import '../widgets/document_style.dart';
 
 class ReportFormScreen extends StatefulWidget {
-  const ReportFormScreen({super.key});
+  const ReportFormScreen({
+    super.key,
+    this.initialKind,
+    this.initialDocumentNumber,
+  });
+
+  /// Sens préchoisi quand on arrive depuis une recherche infructueuse
+  final ReportKind? initialKind;
+
+  /// Numéro déjà saisi dans la recherche : le redemander serait une faute
+  final String? initialDocumentNumber;
 
   @override
   State<ReportFormScreen> createState() => _ReportFormScreenState();
@@ -26,14 +36,10 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
 
   /// Un incident, plusieurs documents : un sac contient souvent la carte
   /// d'identité et le permis.
-  final List<DocumentDraft> _documents = [
-    DocumentDraft(documentType: DocumentType.cni),
-  ];
-  final List<TextEditingController> _numberControllers = [
-    TextEditingController(),
-  ];
+  late final List<DocumentDraft> _documents;
+  late final List<TextEditingController> _numberControllers;
+  late ReportKind _kind;
 
-  ReportKind _kind = ReportKind.lost;
   String _region = senegalRegions.first;
   DateTime? _occurredOn;
 
@@ -44,6 +50,17 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
   bool _isSubmitting = false;
   String? _generalError;
   Map<String, String> _fieldErrors = {};
+
+  @override
+  void initState() {
+    super.initState();
+
+    _kind = widget.initialKind ?? ReportKind.lost;
+    _documents = [DocumentDraft(documentType: DocumentType.cni)];
+    _numberControllers = [
+      TextEditingController(text: widget.initialDocumentNumber ?? ''),
+    ];
+  }
 
   @override
   void dispose() {
@@ -196,7 +213,6 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
                     ? null
                     : (selection) => setState(() => _kind = selection.first),
               ),
-              
               const SizedBox(height: 24),
               Row(
                 children: [
@@ -360,6 +376,11 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
     final document = _documents[index];
     final style = DocumentStyle.of(document.documentType);
 
+    // Repris de la recherche : l'utilisateur l'a déjà tapé
+    final isPrefilled = index == 0 &&
+        widget.initialDocumentNumber != null &&
+        _numberControllers[index].text == widget.initialDocumentNumber;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Card(
@@ -401,10 +422,14 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
               TextField(
                 controller: _numberControllers[index],
                 enabled: !_isSubmitting,
+                onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
                   labelText: 'Numéro (optionnel)',
                   helperText: 'Permet le rapprochement automatique',
                   prefixIcon: const Icon(Icons.pin_outlined),
+                  suffixIcon: isPrefilled
+                      ? const Icon(Icons.check, color: AppTheme.success)
+                      : null,
                   errorText: _fieldErrors['documents.$index.document_number'],
                 ),
               ),
