@@ -262,41 +262,24 @@ class _ShareBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppTheme.accentSoft,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          const Row(
-            children: [
-              Icon(Icons.campaign_outlined, color: AppTheme.accent),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Faites circuler sans donner votre numéro',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Le lien partagé affiche les informations masquées. '
-            'Celui qui a votre document passe par Dello pour vous joindre.',
-            style: TextStyle(fontSize: 13, color: AppTheme.inkSoft),
-          ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: onShare,
-            icon: const Icon(Icons.share_outlined, size: 18),
-            label: const Text('Partager'),
-            style: FilledButton.styleFrom(
-              backgroundColor: AppTheme.accent,
-              minimumSize: const Size.fromHeight(46),
+          const Icon(Icons.campaign_outlined, color: AppTheme.accent, size: 22),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Partager sans donner votre numéro',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
             ),
+          ),
+          TextButton(
+            onPressed: onShare,
+            child: const Text('Partager'),
           ),
         ],
       ),

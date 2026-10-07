@@ -86,16 +86,9 @@ class _ReportPublicDetailScreenState extends State<ReportPublicDetailScreen> {
           const SizedBox(height: 20),
           DocumentsSection(report: report),
           const Divider(height: 32),
-          Text(
+                    Text(
             report.claimPrompt,
             style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            report.hasVerificationQuestion
-                ? report.claimExplanation
-                : 'Votre demande sera transmise au déclarant, qui décidera.',
-            style: const TextStyle(color: AppTheme.inkSoft, fontSize: 13),
           ),
           const SizedBox(height: 16),
           if (report.hasVerificationQuestion) ...[

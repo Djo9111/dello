@@ -39,7 +39,7 @@ class DocumentsSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        ...report.documents.map(
+                ...report.documents.map(
           (document) => Padding(
             padding: const EdgeInsets.only(bottom: 14),
             child: DocumentCard(
@@ -50,12 +50,6 @@ class DocumentsSection extends StatelessWidget {
             ),
           ),
         ),
-        if (showHint)
-          const Text(
-            'Les numéros ne sont jamais affichés ni conservés en clair. '
-            'Ils servent uniquement au rapprochement automatique.',
-            style: TextStyle(fontSize: 12, color: AppTheme.inkSoft),
-          ),
       ],
     );
   }

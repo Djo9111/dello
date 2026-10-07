@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../auth/auth_controller.dart';
 import '../data/reports_repository.dart';
 import '../models/report.dart';
 import '../widgets/document_style.dart';
@@ -27,18 +28,21 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
 
   final _repository = ReportsRepository();
   final _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
 
   Timer? _debounce;
   Map<DocumentType, List<Report>> _byFamily = {};
   List<Report> _searchResults = [];
 
+  /// La recherche n'apparaît qu'après avoir choisi "J'ai perdu" : un champ
+  /// seul ne dit pas ce qu'il faut y mettre.
+  bool _searchOpen = false;
+
   /// Terme réellement envoyé au serveur. Distinct du texte en cours de
-  /// frappe : le message "aucun résultat" ne doit pas clignoter à chaque
-  /// lettre tapée.
+  /// frappe : le message "aucun résultat" ne doit pas clignoter.
   String _search = '';
   bool _hasSearched = false;
 
-  ReportKind? _kind;
   bool _isLoading = true;
   String? _error;
 
@@ -54,7 +58,29 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
   void dispose() {
     _debounce?.cancel();
     _searchController.dispose();
+    _searchFocus.dispose();
     super.dispose();
+  }
+
+  void _openSearch() {
+    setState(() => _searchOpen = true);
+    // Le champ n'existe qu'après la reconstruction : demander le focus
+    // immédiatement n'aurait aucun effet.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _searchFocus.requestFocus();
+    });
+  }
+
+  void _closeSearch() {
+    _debounce?.cancel();
+    _searchController.clear();
+    _searchFocus.unfocus();
+    setState(() {
+      _searchOpen = false;
+      _search = '';
+      _hasSearched = false;
+    });
+    _load();
   }
 
   void _onSearchChanged(String value) {
@@ -67,16 +93,6 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
     });
   }
 
-  void _clearSearch() {
-    _debounce?.cancel();
-    _searchController.clear();
-    setState(() {
-      _search = '';
-      _hasSearched = false;
-    });
-    _load();
-  }
-
   Future<void> _load() async {
     setState(() {
       _isLoading = true;
@@ -85,11 +101,7 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
 
     try {
       if (_isSearching) {
-        final results = await _repository.listPublic(
-          kind: _kind,
-          search: _search,
-          limit: 50,
-        );
+        final results = await _repository.listPublic(search: _search, limit: 50);
         if (mounted) {
           setState(() {
             _searchResults = results;
@@ -97,12 +109,9 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
           });
         }
       } else {
-        // Une requête par famille, lancées ensemble : chaque ligne reste
-        // remplie même si une famille n'a que des signalements anciens.
         final results = await Future.wait(
           DocumentType.values.map(
             (type) => _repository.listPublic(
-              kind: _kind,
               documentType: type,
               limit: _previewSize,
             ),
@@ -131,238 +140,321 @@ class _ReportsHomeScreenState extends State<ReportsHomeScreen> {
 
   Future<void> _openFamily(DocumentType type) async {
     final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => ReportsFamilyScreen(documentType: type, kind: _kind),
-      ),
+      MaterialPageRoute(builder: (_) => ReportsFamilyScreen(documentType: type)),
     );
     if (changed == true) _load();
   }
 
-  /// Le numéro tapé part dans le formulaire : l'utilisateur l'a déjà saisi,
-  /// le redemander serait une friction inutile.
   Future<void> _declare(ReportKind kind) async {
     final created = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => ReportFormScreen(
           initialKind: kind,
-          initialDocumentNumber: _search,
+          initialDocumentNumber: _search.isEmpty ? null : _search,
         ),
       ),
     );
 
     if (created == true && mounted) {
-      _clearSearch();
+      _closeSearch();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Déclaration enregistrée')),
       );
     }
   }
 
-  void _setKind(ReportKind? kind) {
-    setState(() => _kind = kind);
-    _load();
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _SearchHeader(
-          controller: _searchController,
-          onChanged: _onSearchChanged,
-          onClear: _clearSearch,
-          isSearching: _isSearching,
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: Row(
-            children: [
-              _FilterPill(
-                label: 'Tout',
-                selected: _kind == null,
-                onTap: () => _setKind(null),
-              ),
-              const SizedBox(width: 8),
-              _FilterPill(
-                label: 'Perdus',
-                selected: _kind == ReportKind.lost,
-                onTap: () => _setKind(ReportKind.lost),
-              ),
-              const SizedBox(width: 8),
-              _FilterPill(
-                label: 'Trouvés',
-                selected: _kind == ReportKind.found,
-                onTap: () => _setKind(ReportKind.found),
-              ),
-            ],
+    final firstName =
+        (AuthController.instance.user?.fullName ?? '').split(' ').first;
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: _searchOpen
+                ? _SearchBar(
+                    key: const ValueKey('recherche'),
+                    controller: _searchController,
+                    focusNode: _searchFocus,
+                    onChanged: _onSearchChanged,
+                    onClose: _closeSearch,
+                  )
+                : _ActionHeader(
+                    key: const ValueKey('actions'),
+                    firstName: firstName,
+                    onLost: _openSearch,
+                    onFound: () => _declare(ReportKind.found),
+                  ),
           ),
-        ),
-        Expanded(child: _buildBody()),
-      ],
+          ..._buildContent(),
+        ],
+      ),
     );
   }
 
-  Widget _buildBody() {
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
+  List<Widget> _buildContent() {
+    if (_isLoading) {
+      return const [
+        Padding(
+          padding: EdgeInsets.symmetric(vertical: 48),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
 
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(_error!, textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: _load, child: const Text('Réessayer')),
-          ],
+      return [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 32),
+          child: Column(
+            children: [
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton(onPressed: _load, child: const Text('Réessayer')),
+            ],
+          ),
         ),
-      );
+      ];
     }
 
     if (_isSearching) return _buildSearchResults();
 
     if (_byFamily.isEmpty) {
-      return const _EmptyState(message: 'Aucun signalement pour le moment.');
+      return const [
+        Padding(
+          padding: EdgeInsets.symmetric(vertical: 40, horizontal: 32),
+          child: Text(
+            'Aucun signalement pour le moment.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppTheme.inkSoft),
+          ),
+        ),
+      ];
     }
 
-    final families = _byFamily.keys.toList();
-
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView.builder(
-        padding: const EdgeInsets.only(bottom: 24),
-        itemCount: families.length,
-        itemBuilder: (context, index) {
-          final type = families[index];
-          final reports = _byFamily[type]!;
-          final style = DocumentStyle.of(type);
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 8, 10),
-                child: Row(
-                  children: [
-                    Icon(style.icon, size: 20, color: style.color),
-                    const SizedBox(width: 8),
-                    Text(
-                      type.label,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.ink,
-                      ),
-                    ),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: () => _openFamily(type),
-                      child: const Text('Tout voir'),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(left: 16),
-                child: FamilyCarousel(reports: reports, onReportTap: _openReport),
-              ),
-              const SizedBox(height: 16),
-            ],
-          );
-        },
+    return [
+      const Padding(
+        padding: EdgeInsets.fromLTRB(16, 4, 16, 10),
+        child: Text(
+          'RÉCEMMENT SIGNALÉS',
+          style: TextStyle(
+            fontSize: 11,
+            letterSpacing: 1,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.inkSoft,
+          ),
+        ),
       ),
-    );
+      ..._byFamily.keys.map((type) {
+        final style = DocumentStyle.of(type);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 8, 8),
+              child: Row(
+                children: [
+                  Icon(style.icon, size: 18, color: style.color),
+                  const SizedBox(width: 8),
+                  Text(
+                    type.label,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.ink,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => _openFamily(type),
+                    child: const Text('Tout voir'),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: FamilyCarousel(
+                reports: _byFamily[type]!,
+                onReportTap: _openReport,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        );
+      }),
+    ];
   }
 
-  Widget _buildSearchResults() {
+  List<Widget> _buildSearchResults() {
     if (_searchResults.isEmpty) {
-      // Tant que la recherche n'a pas abouti, on n'affiche rien : le
-      // message ne doit pas apparaître pendant la frappe.
-      if (!_hasSearched) return const SizedBox.shrink();
-      return _NoResult(onDeclare: _declare);
+      if (!_hasSearched) return const [SizedBox.shrink()];
+      return [_NoResult(onDeclare: _declare)];
     }
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              _searchResults.length > 1
-                  ? '${_searchResults.length} signalements correspondent'
-                  : 'Un signalement correspond',
-              style: const TextStyle(color: AppTheme.inkSoft, fontSize: 13),
-            ),
-          ),
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Text(
+          _searchResults.length > 1
+              ? '${_searchResults.length} signalements correspondent'
+              : 'Un signalement correspond',
+          style: const TextStyle(color: AppTheme.inkSoft, fontSize: 13),
         ),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-            itemCount: _searchResults.length,
-            itemBuilder: (context, index) => ReportRow(
-              report: _searchResults[index],
-              onTap: () => _openReport(_searchResults[index]),
-            ),
-          ),
+      ),
+      ..._searchResults.map(
+        (report) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: ReportRow(report: report, onTap: () => _openReport(report)),
         ),
-      ],
-    );
+      ),
+    ];
   }
 }
 
-class _SearchHeader extends StatelessWidget {
-  const _SearchHeader({
-    required this.controller,
-    required this.onChanged,
-    required this.onClear,
-    required this.isSearching,
+class _ActionHeader extends StatelessWidget {
+  const _ActionHeader({
+    super.key,
+    required this.firstName,
+    required this.onLost,
+    required this.onFound,
   });
 
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
-  final VoidCallback onClear;
-  final bool isSearching;
+  final String firstName;
+  final VoidCallback onLost;
+  final VoidCallback onFound;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // L'accroche disparaît pendant la recherche, pour laisser la
-          // place aux résultats sur les petits écrans.
-          if (!isSearching) ...[
-            const Text(
-              'Vous avez perdu un document ?',
-              style: TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.ink,
+          Text(
+            firstName.isEmpty ? 'Bonjour' : 'Bonjour $firstName',
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.ink,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _ActionCard(
+                  icon: Icons.search,
+                  label: "J'ai perdu\nun document",
+                  color: AppTheme.primary,
+                  onTap: onLost,
+                ),
               ),
-            ),
-            const SizedBox(height: 2),
-            const Text(
-              "Entrez son numéro pour voir s'il a été signalé.",
-              style: TextStyle(fontSize: 13, color: AppTheme.inkSoft),
-            ),
-            const SizedBox(height: 12),
-          ],
-          TextField(
-            controller: controller,
-            onChanged: onChanged,
-            textInputAction: TextInputAction.search,
-            decoration: InputDecoration(
-              hintText: 'Numéro du document, commune ou nom',
-              prefixIcon: const Icon(Icons.search, color: AppTheme.inkSoft),
-              suffixIcon: controller.text.isEmpty
-                  ? null
-                  : IconButton(icon: const Icon(Icons.close), onPressed: onClear),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _ActionCard(
+                  icon: Icons.place_outlined,
+                  label: "J'ai trouvé\nun document",
+                  color: AppTheme.success,
+                  onTap: onFound,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SearchBar extends StatelessWidget {
+  const _SearchBar({
+    super.key,
+    required this.controller,
+    required this.focusNode,
+    required this.onChanged,
+    required this.onClose,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 16, 16),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: onClose,
+          ),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              focusNode: focusNode,
+              onChanged: onChanged,
+              textInputAction: TextInputAction.search,
+              decoration: const InputDecoration(
+                hintText: 'Numéro du document, commune ou nom',
+                prefixIcon: Icon(Icons.search, color: AppTheme.inkSoft),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ActionCard extends StatelessWidget {
+  const _ActionCard({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: Colors.white, size: 22),
+              const SizedBox(height: 26),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  height: 1.25,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -375,93 +467,34 @@ class _NoResult extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-      children: [
-        const Icon(Icons.search_off, size: 48, color: AppTheme.inkSoft),
-        const SizedBox(height: 16),
-        const Text(
-          'Aucun signalement ne correspond pour le moment.',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'Déclarez votre document : vous serez prévenu dès que quelqu\'un '
-          'le signalera.',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 13, color: AppTheme.inkSoft),
-        ),
-        const SizedBox(height: 24),
-        FilledButton.icon(
-          onPressed: () => onDeclare(ReportKind.lost),
-          icon: const Icon(Icons.search_off_outlined, size: 18),
-          label: const Text("J'ai perdu ce document"),
-        ),
-        const SizedBox(height: 10),
-        OutlinedButton.icon(
-          onPressed: () => onDeclare(ReportKind.found),
-          icon: const Icon(Icons.inventory_2_outlined, size: 18),
-          label: const Text("J'ai trouvé ce document"),
-        ),
-      ],
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: AppTheme.inkSoft),
-        ),
-      ),
-    );
-  }
-}
-
-class _FilterPill extends StatelessWidget {
-  const _FilterPill({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-        decoration: BoxDecoration(
-          color: selected ? AppTheme.primary : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected ? AppTheme.primary : const Color(0xFFE0DAD0),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+      child: Column(
+        children: [
+          const Icon(Icons.search_off, size: 44, color: AppTheme.inkSoft),
+          const SizedBox(height: 14),
+          const Text(
+            'Aucun signalement ne correspond.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.white : AppTheme.ink,
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () => onDeclare(ReportKind.lost),
+              child: const Text("J'ai perdu ce document"),
+            ),
           ),
-        ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () => onDeclare(ReportKind.found),
+              child: const Text("J'ai trouvé ce document"),
+            ),
+          ),
+        ],
       ),
     );
   }
